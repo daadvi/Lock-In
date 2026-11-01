@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Lock in</string>
+    <string name="accessibility_service_desc">O serviço de acessibilidade do Lock in monitora o uso de redes sociais, vídeos curtos (Shorts/Reels) e sites bloqueados para aplicar seus limites de tempo rigorosamente.</string>
+    <string name="device_admin_label">Proteção Contra Desinstalação Lock In</string>
+    <string name="device_admin_description">Ativa a blindagem do sistema que impede a remoção ou desinstalação não autorizada do Lock In, exigindo o protocolo estrito de 5 senhas e frase de segurança.</string>
+    <string name="widget_screen_time_desc">Tempo de tela restante e sequência diária</string>
+    <string name="widget_focus_desc">Controle de foco, rotinas e limites respeitados</string>
+    <string name="widget_quick_bar_desc">Barra compacta de status e atalhos rápidos</string>
+</resources>

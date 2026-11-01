@@ -1,0 +1,6 @@
+{
+  "name": "Lock in",
+  "description": "Controle rígido de redes sociais e vídeos curtos no estilo Nothing CMF com ilha flutuante e desbloqueio de confiança.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

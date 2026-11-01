@@ -1,0 +1,6 @@
+{
+  "summary":  "Plano de auditoria operacional de ponta a ponta e plano de mitigação preventiva para todos os fluxos de uso do Lock In. Cobre ciclo de vida pós-reboot (VPN auto-resume), integridade do teto mensal de emergência, prevenção de colisão em tópicos de sala e testes de estresse de navegação e bloqueio.",
+  "updatedAt":  "2026-10-30T11:20:46.858152866Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
