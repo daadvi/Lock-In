@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -36,14 +37,18 @@ import kotlinx.coroutines.withContext
  * Ensures smooth, fast 60fps list rendering without redundant PackageManager IPC calls.
  */
 object AppIconHelper {
-    private val iconCache = LruCache<String, Bitmap>(250)
+    private val iconCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.allocationByteCount
+    }
 
-    fun getCachedIcon(packageName: String): Bitmap? {
-        return iconCache.get(packageName)
+    fun getCachedIcon(packageName: String, targetSizePx: Int = 128): Bitmap? {
+        return iconCache.get("$packageName:$targetSizePx")
     }
 
     fun loadIcon(context: Context, packageName: String, targetSizePx: Int = 128): Bitmap? {
-        val cached = iconCache.get(packageName)
+        require(targetSizePx in 1..512)
+        val key = "$packageName:$targetSizePx"
+        val cached = iconCache.get(key)
         if (cached != null) return cached
 
         return try {
@@ -52,7 +57,7 @@ object AppIconHelper {
             val drawable: Drawable = pm.getApplicationIcon(appInfo)
             val bitmap = drawableToBitmap(drawable, targetSizePx)
             if (bitmap != null) {
-                iconCache.put(packageName, bitmap)
+                iconCache.put(key, bitmap)
             }
             bitmap
         } catch (_: Exception) {
@@ -64,13 +69,11 @@ object AppIconHelper {
         if (drawable is BitmapDrawable && drawable.bitmap != null) {
             return Bitmap.createScaledBitmap(drawable.bitmap, sizePx, sizePx, true)
         }
-        val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else sizePx
-        val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else sizePx
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         drawable.setBounds(0, 0, canvas.width, canvas.height)
         drawable.draw(canvas)
-        return Bitmap.createScaledBitmap(bitmap, sizePx, sizePx, true)
+        return bitmap
     }
 }
 
@@ -101,14 +104,17 @@ fun AppIconImage(
     cornerRadius: Dp = 10.dp
 ) {
     val context = LocalContext.current
+    val iconSizePx = with(LocalDensity.current) { sizeDp.roundToPx().coerceIn(1, 512) }
 
     val iconState = produceState<Bitmap?>(
-        initialValue = AppIconHelper.getCachedIcon(packageName),
-        key1 = packageName
+        initialValue = AppIconHelper.getCachedIcon(packageName, iconSizePx),
+        key1 = packageName,
+        key2 = iconSizePx
     ) {
+        value = AppIconHelper.getCachedIcon(packageName, iconSizePx)
         if (value == null) {
             val bmp = withContext(Dispatchers.IO) {
-                AppIconHelper.loadIcon(context, packageName)
+                AppIconHelper.loadIcon(context, packageName, iconSizePx)
             }
             value = bmp
         }

@@ -105,6 +105,26 @@ fun AccountSyncDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var statusSuccessMessage by remember { mutableStateOf<String?>(null) }
 
+    var restoringEmail by remember { mutableStateOf<String?>(null) }
+    restoringEmail?.let { owner ->
+        Dialog(onDismissRequest = { restoringEmail = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+            com.example.ui.screens.TrustUnlockScreen(
+                correctTrustPassword = com.example.LockInApplication.instance.userPreferences.getTrustPassword(),
+                targetAppName = "Restaurar backup",
+                onUnlockConfirmed = {
+                    restoringEmail = null
+                    coroutineScope.launch {
+                        val result = CloudSyncManager.restoreDataFromCloud(context, owner, afterTrustChallenge = true)
+                        if (result.success) statusSuccessMessage = "Backup local restaurado."
+                        else errorMessage = result.message
+                    }
+                },
+                onBack = { restoringEmail = null }
+            )
+        }
+        return
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Box(
             modifier = Modifier
@@ -223,7 +243,7 @@ fun AccountSyncDialog(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "${account.provider.displayName} • Nuvem Conectada",
+                                        text = "${account.provider.displayName} • Conta local",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF2E7D32)
@@ -310,8 +330,8 @@ fun AccountSyncDialog(
                             coroutineScope.launch {
                                 val result = CloudSyncManager.syncDataToCloud(context)
                                 if (result.success) {
-                                    statusSuccessMessage = "✓ Sincronizado com sucesso na nuvem!"
-                                    Toast.makeText(context, "Dados salvos na nuvem!", Toast.LENGTH_SHORT).show()
+                                    statusSuccessMessage = "✓ Backup local salvo!"
+                                    Toast.makeText(context, "Dados salvos neste aparelho!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     errorMessage = result.message
                                 }
@@ -336,7 +356,7 @@ fun AccountSyncDialog(
                         } else {
                             Icon(imageVector = Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("SINCRONIZAR AGORA", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = BlockyFontFamily)
+                            Text("SALVAR BACKUP LOCAL", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = BlockyFontFamily)
                         }
                     }
 
@@ -344,15 +364,7 @@ fun AccountSyncDialog(
 
                     OutlinedButton(
                         onClick = {
-                            coroutineScope.launch {
-                                val result = CloudSyncManager.restoreDataFromCloud(context, account.email)
-                                if (result.success) {
-                                    statusSuccessMessage = "✓ Dados restaurados da nuvem com sucesso!"
-                                    Toast.makeText(context, "Dados restaurados com sucesso!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    errorMessage = result.message
-                                }
-                            }
+                            restoringEmail = account.email
                         },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -363,7 +375,7 @@ fun AccountSyncDialog(
                     ) {
                         Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp), tint = CmfDark)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("RESTAURAR BACKUP DA NUVEM", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CmfDark)
+                        Text("RESTAURAR BACKUP LOCAL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CmfDark)
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -396,7 +408,7 @@ fun AccountSyncDialog(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Protegido por senha: seu backup, rotinas e limites ficam seguros na nuvem. Ninguém pode acessar seus dados sem a sua senha.",
+                        text = "O backup fica no armazenamento privado deste aparelho. Ele não sincroniza com outro celular e é apagado ao remover o app ou limpar seus dados.",
                         fontSize = 10.sp,
                         color = CmfMutedText,
                         lineHeight = 15.sp
@@ -615,10 +627,12 @@ fun AccountSyncDialog(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     val cleanEmail = emailInput.trim().lowercase()
-                    val hasExistingBackup = remember(cleanEmail) {
-                        if (cleanEmail.contains("@") && cleanEmail.contains(".")) {
-                            CloudSyncManager.hasCloudBackup(context, cleanEmail)
-                        } else false
+                    val hasExistingBackup by androidx.compose.runtime.produceState(false, cleanEmail) {
+                        value = false
+                        kotlinx.coroutines.delay(200)
+                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            cleanEmail.contains("@") && cleanEmail.contains(".") && CloudSyncManager.hasCloudBackup(context, cleanEmail)
+                        }
                     }
 
                     if (!isRegisterTab && hasExistingBackup) {
@@ -699,7 +713,7 @@ fun AccountSyncDialog(
                                         provider = selectedProvider
                                     )
                                     res.onSuccess {
-                                        Toast.makeText(context, "Conta criada com sucesso! Backup em nuvem ativado.", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(context, "Conta criada com sucesso! Backup local ativado.", Toast.LENGTH_LONG).show()
                                     }.onFailure { err ->
                                         errorMessage = err.message ?: "Erro ao criar conta."
                                     }

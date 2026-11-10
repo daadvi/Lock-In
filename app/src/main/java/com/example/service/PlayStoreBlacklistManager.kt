@@ -81,7 +81,33 @@ object PlayStoreBlacklistManager {
         "Candy Crush"
     )
 
+    @Volatile private var installedLabels: Map<String, String> = emptyMap()
+    @Volatile private var installedLabelsUpdatedAt = -60_000L
+    private val refreshingInstalledLabels = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val installedLabelsScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+    private fun refreshInstalledLabels(context: Context) {
+        if (android.os.SystemClock.elapsedRealtime() - installedLabelsUpdatedAt < 60_000L ||
+            !refreshingInstalledLabels.compareAndSet(false, true)) return
+        val appContext = context.applicationContext
+        installedLabelsScope.launch {
+            try {
+                val pm = appContext.packageManager
+                installedLabels = pm.getInstalledApplications(0).mapNotNull { info ->
+                    try { info.packageName to pm.getApplicationLabel(info).toString() }
+                    catch (_: Exception) { null }
+                }.toMap()
+            } catch (e: Exception) {
+                android.util.Log.w("PlayStoreBlacklist", "Unable to refresh installed apps", e)
+            } finally {
+                installedLabelsUpdatedAt = android.os.SystemClock.elapsedRealtime()
+                refreshingInstalledLabels.set(false)
+            }
+        }
+    }
+
     fun initialize(context: Context) {
+        refreshInstalledLabels(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _isBlacklistEnabled.value = prefs.getBoolean(KEY_ENABLED, true)
 
@@ -388,7 +414,6 @@ object PlayStoreBlacklistManager {
      */
     fun findInstalledPackageForBlacklist(context: Context, appNameOrKeyword: String?): String? {
         if (appNameOrKeyword.isNullOrBlank()) return null
-        val pm = context.packageManager
 
         // 1. Check known packages mapping first
         val canonicals = getCanonicalKeysFor(appNameOrKeyword)
@@ -401,28 +426,12 @@ object PlayStoreBlacklistManager {
             }
         }
 
-        // 2. Scan installed applications
-        try {
-            val installed = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-            for (info in installed) {
-                if (info.packageName == context.packageName) continue
-                val lowerPkg = info.packageName.lowercase()
-                if (SYSTEM_SAFE_PACKAGES.contains(lowerPkg) || lowerPkg.contains("launcher") || lowerPkg.contains("systemui")) {
-                    continue
-                }
-
-                // Check package name
-                if (isPackageBlacklisted(info.packageName) != null) {
-                    return info.packageName
-                }
-
-                // Check label
-                val label = pm.getApplicationLabel(info).toString()
-                if (isAppBlacklisted(label) != null) {
-                    return info.packageName
-                }
-            }
-        } catch (_: Exception) {}
+        // Never enumerate installed apps or load every label inside an accessibility callback.
+        refreshInstalledLabels(context)
+        for ((pkg, label) in installedLabels) {
+            if (pkg == context.packageName || SYSTEM_SAFE_PACKAGES.contains(pkg.lowercase())) continue
+            if (pkg.equals(appNameOrKeyword, ignoreCase = true) || isFuzzyMatch(label, appNameOrKeyword)) return pkg
+        }
 
         return null
     }

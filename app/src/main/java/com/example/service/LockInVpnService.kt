@@ -16,6 +16,11 @@ import com.example.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.FileInputStream
@@ -50,6 +55,7 @@ class LockInVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var vpnJob: Job? = null
+    private var startJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
     override fun onCreate() {
@@ -106,114 +112,106 @@ class LockInVpnService : VpnService() {
     }
 
     private fun startVpn() {
-        if (vpnInterface != null) {
-            Log.d(TAG, "VPN is already running. Refreshing settings.")
-            return
-        }
-
-        try {
-            startForeground(NOTIFICATION_ID, buildNotification())
-            val builder = Builder()
-                .setSession("Lock In Escudo")
-                .setMtu(1500)
-                .addAddress("10.10.0.1", 24)
-                .addDnsServer(VPN_DNS_SERVER)
-                .addRoute(VPN_DNS_SERVER, 32)
-
-            // CRITICAL: Absolute Exemption for all Banking and Financial Apps
-            // Disallowing packages routes their network packets directly through standard Wi-Fi/Cellular,
-            // completely bypassing the VPN interface at the kernel level.
-            val installedPackages = packageManager.getInstalledPackages(0).map { it.packageName }.toSet()
-            for (pkg in installedPackages) {
-                if (BankingSecurityHelper.isBankingOrFinancialApp(pkg)) {
-                    try {
-                        builder.addDisallowedApplication(pkg)
-                        Log.d(TAG, "Kernel-exempted banking app from VPN interface: $pkg")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not disallow package: $pkg", e)
-                    }
-                }
-            }
-
-            // Also disallow Lock In itself to prevent loopback
+        if (vpnInterface != null || startJob?.isActive == true) return
+        // Android's foreground-service deadline must be met before slow PackageManager calls.
+        startForeground(NOTIFICATION_ID, buildNotification())
+        startJob = scope.launch(Dispatchers.Main.immediate) {
+            var candidate: ParcelFileDescriptor? = null
             try {
-                builder.addDisallowedApplication(packageName)
-            } catch (_: Exception) {}
-
-            val pfd = builder.establish()
-            if (pfd == null) {
-                Log.e(TAG, "Builder.establish() returned null. VPN not authorized or failed.")
-                LockInVpnManager.setVpnRunning(false)
+                withContext(Dispatchers.IO) {
+                    val builder = Builder()
+                        .setSession("Lock In Escudo")
+                        .setMtu(1500)
+                        .addAddress("10.10.0.1", 24)
+                        .addDnsServer(VPN_DNS_SERVER)
+                        .addRoute(VPN_DNS_SERVER, 32)
+                    for (info in packageManager.getInstalledPackages(0)) {
+                        if (BankingSecurityHelper.isBankingOrFinancialApp(info.packageName)) {
+                            try { builder.addDisallowedApplication(info.packageName) }
+                            catch (_: android.content.pm.PackageManager.NameNotFoundException) {}
+                        }
+                    }
+                    builder.addDisallowedApplication(packageName)
+                    candidate = builder.establish()
+                }
+                val established = candidate ?: error("VPN permission is unavailable")
+                vpnInterface = established
+                LockInVpnManager.setVpnRunning(true)
+                startDnsPacketLoop(established)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Unable to establish VPN", e)
+                stopVpn()
                 stopSelf()
-                return
+            } finally {
+                // Includes cancellation while PackageManager/establish was still executing.
+                if (candidate !== vpnInterface) candidate?.close()
             }
-
-            vpnInterface = pfd
-            LockInVpnManager.setVpnRunning(true)
-            Log.i(TAG, "Lock In VPN interface established successfully.")
-
-            startDnsPacketLoop(pfd)
-        } catch (e: Exception) {
-            Log.e(TAG, "Fatal error establishing Lock In VPN", e)
-            stopVpn()
-            stopSelf()
         }
     }
 
     private fun startDnsPacketLoop(pfd: ParcelFileDescriptor) {
         vpnJob?.cancel()
         vpnJob = scope.launch {
-            val input = FileInputStream(pfd.fileDescriptor)
-            val output = FileOutputStream(pfd.fileDescriptor)
-            val packet = ByteArray(32767)
-
-            while (isActive) {
-                try {
-                    val length = input.read(packet)
-                    if (length <= 0) {
-                        continue
-                    }
-
-                    // Process IPv4 packet
-                    val buffer = ByteBuffer.wrap(packet, 0, length)
-                    val versionAndIhl = buffer.get(0).toInt() and 0xFF
-                    val version = versionAndIhl ushr 4
-                    val ihl = (versionAndIhl and 0x0F) * 4
-
-                    if (version != 4 || length < ihl + 8) {
-                        continue
-                    }
-
-                    val protocol = buffer.get(9).toInt() and 0xFF
-                    if (protocol != 17) { // 17 = UDP
-                        continue
-                    }
-
-                    val srcPort = buffer.getShort(ihl).toInt() and 0xFFFF
-                    val dstPort = buffer.getShort(ihl + 2).toInt() and 0xFFFF
-                    val udpLen = buffer.getShort(ihl + 4).toInt() and 0xFFFF
-
-                    if (dstPort == 53 && udpLen >= 8) { // DNS Query
-                        val dnsOffset = ihl + 8
-                        val dnsLen = udpLen - 8
-                        if (dnsOffset + dnsLen <= length) {
-                            val packetSnapshot = packet.copyOfRange(0, length)
-                            scope.launch(Dispatchers.IO) {
-                                handleDnsQuery(
-                                    packet = packetSnapshot,
-                                    ihl = ihl,
-                                    dnsOffset = dnsOffset,
-                                    dnsLen = dnsLen,
-                                    srcPort = srcPort,
-                                    dstPort = dstPort,
-                                    output = output
-                                )
+            try {
+                coroutineScope {
+                    val input = FileInputStream(pfd.fileDescriptor)
+                    val output = FileOutputStream(pfd.fileDescriptor)
+                    // Backpressure bounds both queued packets and upstream sockets.
+                    val requests = Channel<ByteArray>(64)
+                    repeat(4) {
+                        launch {
+                            for (packet in requests) {
+                                try {
+                                    val ihl = (packet[0].toInt() and 0x0F) * 4
+                                    val buffer = ByteBuffer.wrap(packet)
+                                    handleDnsQuery(packet, ihl, ihl + 8,
+                                        (buffer.getShort(ihl + 4).toInt() and 0xFFFF) - 8,
+                                        buffer.getShort(ihl).toInt() and 0xFFFF, 53, output)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "DNS request failed", e)
+                                }
                             }
                         }
                     }
-                } catch (e: Exception) {
-                    if (!isActive) break
-                    Log.d(TAG, "Transient packet processing exception: ${e.message}")
+                    val packet = ByteArray(32767)
+                    val pollDescriptors = arrayOf(android.system.StructPollfd().apply {
+                        fd = pfd.fileDescriptor
+                        events = android.system.OsConstants.POLLIN.toShort()
+                    })
+                    try {
+                        while (isActive) {
+                            val length = try { input.read(packet) } catch (e: java.io.IOException) {
+                                // A nonblocking TUN can report EAGAIN when idle.
+                                val errno = e.cause as? android.system.ErrnoException
+                                if (errno?.errno == android.system.OsConstants.EAGAIN) 0 else throw e
+                            }
+                            if (length < 0) break
+                            if (length == 0) {
+                                // Sleep in the kernel until traffic arrives; no 100 Hz idle coroutine polling.
+                                android.system.Os.poll(pollDescriptors, 1000)
+                                continue
+                            }
+                            if (!DnsPacket.isDnsQuery(packet, length)) continue
+                            requests.send(packet.copyOf(length))
+                        }
+                    } finally {
+                        requests.close()
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "VPN packet loop stopped", e)
+            } finally {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) {
+                    if (vpnInterface === pfd) {
+                        stopVpn()
+                        stopSelf()
+                    }
                 }
             }
         }
@@ -253,7 +251,8 @@ class LockInVpnService : VpnService() {
             // Forward to upstream DNS (1.1.1.1) using dedicated ephemeral socket to guarantee thread safety
             try {
                 DatagramSocket().use { querySocket ->
-                    protect(querySocket)
+                    check(protect(querySocket)) { "Cannot protect upstream socket" }
+                    querySocket.connect(InetAddress.getByName(UPSTREAM_DNS_PRIMARY), 53)
                     querySocket.soTimeout = 1500
                     val dnsQueryBytes = packet.copyOfRange(dnsOffset, dnsOffset + dnsLen)
                     val outPacket = DatagramPacket(
@@ -279,7 +278,8 @@ class LockInVpnService : VpnService() {
                 // Fallback: try secondary upstream if primary timed out
                 try {
                     DatagramSocket().use { fallbackSocket ->
-                        protect(fallbackSocket)
+                        check(protect(fallbackSocket)) { "Cannot protect upstream socket" }
+                        fallbackSocket.connect(InetAddress.getByName(UPSTREAM_DNS_SECONDARY), 53)
                         fallbackSocket.soTimeout = 1500
                         val dnsQueryBytes = packet.copyOfRange(dnsOffset, dnsOffset + dnsLen)
                         val outPacket = DatagramPacket(
@@ -325,29 +325,8 @@ class LockInVpnService : VpnService() {
         return false
     }
 
-    private fun parseDnsQuestionDomain(packet: ByteArray, dnsOffset: Int, dnsLen: Int): String? {
-        try {
-            if (dnsLen < 12) return null
-            var pos = dnsOffset + 12 // Skip DNS header (12 bytes)
-            val end = dnsOffset + dnsLen
-            val sb = java.lang.StringBuilder()
-
-            while (pos < end) {
-                val len = packet[pos].toInt() and 0xFF
-                if (len == 0) break
-                pos++
-                if (pos + len > end) return null
-                if (sb.isNotEmpty()) sb.append('.')
-                for (i in 0 until len) {
-                    sb.append(packet[pos + i].toInt().toChar())
-                }
-                pos += len
-            }
-            return sb.toString().lowercase()
-        } catch (_: Exception) {
-            return null
-        }
-    }
+    private fun parseDnsQuestionDomain(packet: ByteArray, dnsOffset: Int, dnsLen: Int): String? =
+        DnsPacket.question(packet, dnsOffset, dnsLen)?.domain
 
     private fun buildDnsBlockResponse(
         packet: ByteArray,
@@ -362,38 +341,18 @@ class LockInVpnService : VpnService() {
             val txId0 = packet[dnsOffset]
             val txId1 = packet[dnsOffset + 1]
 
-            // Find question end
-            var qPos = dnsOffset + 12
-            val qEnd = dnsOffset + dnsLen
-            while (qPos < qEnd) {
-                val len = packet[qPos].toInt() and 0xFF
-                if (len == 0) {
-                    qPos += 5 // 1 (null byte) + 2 (QTYPE) + 2 (QCLASS)
-                    break
-                }
-                qPos += (len + 1)
-            }
-            if (qPos > qEnd) return null
-            val questionBytes = packet.copyOfRange(dnsOffset + 12, qPos)
-
-            // Build DNS payload (12-byte header + question + answer with 0.0.0.0)
-            val dnsResp = ByteBuffer.allocate(12 + questionBytes.size + 16)
+            val question = DnsPacket.question(packet, dnsOffset, dnsLen) ?: return null
+            val questionBytes = packet.copyOfRange(dnsOffset + 12, question.end)
+            // NXDOMAIN is valid for A, AAAA and other query types; never return an A answer to AAAA.
+            val dnsResp = ByteBuffer.allocate(12 + questionBytes.size)
             dnsResp.put(txId0)
             dnsResp.put(txId1)
-            dnsResp.putShort(0x8180.toShort()) // Standard response, No error
-            dnsResp.putShort(1) // QDCOUNT
-            dnsResp.putShort(1) // ANCOUNT
-            dnsResp.putShort(0) // NSCOUNT
-            dnsResp.putShort(0) // ARCOUNT
+            dnsResp.putShort((0x8083 or ((packet[dnsOffset + 2].toInt() and 1) shl 8)).toShort())
+            dnsResp.putShort(1)
+            dnsResp.putShort(0)
+            dnsResp.putShort(0)
+            dnsResp.putShort(0)
             dnsResp.put(questionBytes)
-
-            // Answer record: Pointer to question name (0xC00C)
-            dnsResp.putShort(0xC00C.toShort())
-            dnsResp.putShort(1) // TYPE A
-            dnsResp.putShort(1) // CLASS IN
-            dnsResp.putInt(60)  // TTL = 60s
-            dnsResp.putShort(4) // RDLENGTH = 4
-            dnsResp.put(byteArrayOf(0, 0, 0, 0)) // 0.0.0.0
 
             val dnsPayload = dnsResp.array()
             return wrapDnsResponseInIp(packet, ihl, srcPort, dstPort, dnsPayload)
@@ -465,6 +424,8 @@ class LockInVpnService : VpnService() {
     }
 
     private fun stopVpn() {
+        startJob?.cancel()
+        startJob = null
         vpnJob?.cancel()
         vpnJob = null
         try {
@@ -478,6 +439,7 @@ class LockInVpnService : VpnService() {
 
     override fun onDestroy() {
         stopVpn()
+        scope.cancel()
         super.onDestroy()
     }
 

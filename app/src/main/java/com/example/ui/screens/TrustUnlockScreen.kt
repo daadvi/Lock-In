@@ -32,7 +32,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
+import com.example.ui.components.ManualEntryTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -426,10 +426,10 @@ fun TrustUnlockScreen(
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
 
-                                    OutlinedTextField(
+                                    ManualEntryTextField(
                                         value = passwordInput,
                                         onValueChange = { newVal ->
-                                            if (!isManualTyping(passwordInput, newVal, maxBurst = 2)) {
+                                            if (!isManualTyping(passwordInput, newVal)) {
                                                 pasteWarning = "Digitação manual obrigatória! Copiar e colar foi bloqueado."
                                             } else {
                                                 pasteWarning = null
@@ -484,7 +484,7 @@ fun TrustUnlockScreen(
                                     // Phrase input (Step Final)
                                     Column {
                                         Text(
-                                            text = "DIGITE EXATAMENTE A FRASE ABAIXO (SEM ERRAR):",
+                                            text = "DIGITE A FRASE (MAIÚSCULAS E MINÚSCULAS SÃO ACEITAS):",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = FontFamily.Monospace,
@@ -510,10 +510,10 @@ fun TrustUnlockScreen(
                                         }
                                         Spacer(modifier = Modifier.height(10.dp))
 
-                                        OutlinedTextField(
+                                        ManualEntryTextField(
                                             value = phraseInput,
                                             onValueChange = { newVal ->
-                                                if (!isManualTyping(phraseInput, newVal, maxBurst = 3)) {
+                                                if (!isManualTyping(phraseInput, newVal)) {
                                                     pasteWarning = "Digitação manual obrigatória! Copiar e colar foi bloqueado."
                                                 } else {
                                                     pasteWarning = null

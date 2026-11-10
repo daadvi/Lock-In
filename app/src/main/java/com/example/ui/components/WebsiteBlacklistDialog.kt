@@ -447,7 +447,7 @@ fun WebsiteBlacklistDialog(
                             fontFamily = FontFamily.SansSerif
                         )
                         Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
+                        ManualEntryTextField(
                             value = passwordConfirmInput,
                             onValueChange = {
                                 passwordConfirmInput = it

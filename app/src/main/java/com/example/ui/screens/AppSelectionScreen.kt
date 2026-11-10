@@ -1,4 +1,5 @@
 package com.example.ui.screens
+import com.example.ui.tutorial.tutorialTarget
 import com.example.ui.theme.BlockyFontFamily
 
 import android.content.Context
@@ -131,6 +132,9 @@ fun AppSelectionScreen(
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Apps Individuais, 1: Tempo Limite em Grupo
     var searchQuery by remember { mutableStateOf("") }
+    var isLoadingApps by remember { mutableStateOf(true) }
+    var appLoadError by remember { mutableStateOf(false) }
+    var loadAttempt by remember { mutableIntStateOf(0) }
     val installedApps = remember { mutableStateListOf<InstalledAppItem>() }
     var editingGroup by remember { mutableStateOf<AppGroupEntity?>(null) }
     var showNewGroupDialog by remember { mutableStateOf(false) }
@@ -148,31 +152,42 @@ fun AppSelectionScreen(
     }
 
     // Query installed apps on phone off the main thread to ensure 60fps UI
-    LaunchedEffect(Unit) {
-        val loaded = withContext(Dispatchers.IO) {
-            val pm = context.packageManager
-            val intent = Intent(Intent.ACTION_MAIN, null).apply {
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            }
-            val resolveList = pm.queryIntentActivities(intent, 0)
-            resolveList.mapNotNull { resolveInfo ->
-                val pkg = resolveInfo.activityInfo.packageName
-                val label = resolveInfo.loadLabel(pm).toString()
-                // Never show Lock in itself in the app limit selection list
-                if (com.example.util.AppFilterHelper.isLockInSelfApp(context, pkg, label)) {
-                    return@mapNotNull null
+    LaunchedEffect(loadAttempt) {
+        isLoadingApps = true
+        appLoadError = false
+        try {
+            val loaded = withContext(Dispatchers.IO) {
+                val pm = context.packageManager
+                val intent = Intent(Intent.ACTION_MAIN, null).apply {
+                    addCategory(Intent.CATEGORY_LAUNCHER)
                 }
-                val isKnownSocial = isKnownSocialOrVideoApp(pkg, label)
-                InstalledAppItem(
-                    packageName = pkg,
-                    appName = label,
-                    isSocialOrVideo = isKnownSocial
-                )
-            }.distinctBy { it.packageName }.sortedByDescending { it.isSocialOrVideo }
-        }
+                val resolveList = pm.queryIntentActivities(intent, 0)
+                resolveList.mapNotNull { resolveInfo ->
+                    val pkg = resolveInfo.activityInfo.packageName
+                    val label = resolveInfo.loadLabel(pm).toString()
+                    // Never show Lock in itself in the app limit selection list
+                    if (com.example.util.AppFilterHelper.isLockInSelfApp(context, pkg, label)) {
+                        return@mapNotNull null
+                    }
+                    val isKnownSocial = isKnownSocialOrVideoApp(pkg, label)
+                    InstalledAppItem(
+                        packageName = pkg,
+                        appName = label,
+                        isSocialOrVideo = isKnownSocial
+                    )
+                }.distinctBy { it.packageName }.sortedByDescending { it.isSocialOrVideo }
+            }
 
-        installedApps.clear()
-        installedApps.addAll(loaded)
+            installedApps.clear()
+            installedApps.addAll(loaded)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("AppSelection", "Unable to load installed apps", e)
+            appLoadError = true
+        } finally {
+            isLoadingApps = false
+        }
     }
 
     val filteredList = remember(installedApps.size, searchQuery) {
@@ -241,7 +256,7 @@ fun AppSelectionScreen(
                             .background(if (selectedTab == 0) accentColor else Color.Transparent)
                             .clickable { selectedTab = 0 }
                             .padding(vertical = 8.dp)
-                            .testTag("tab_individual_limits"),
+                            .testTag("tab_individual_limits").tutorialTarget("apps"),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -261,7 +276,7 @@ fun AppSelectionScreen(
                             .background(if (selectedTab == 1) accentColor else Color.Transparent)
                             .clickable { selectedTab = 1 }
                             .padding(vertical = 8.dp)
-                            .testTag("tab_group_limits"),
+                            .testTag("tab_group_limits").tutorialTarget("groups"),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -434,6 +449,23 @@ fun AppSelectionScreen(
                         contentPadding = PaddingValues(bottom = 120.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        if (isLoadingApps) {
+                            item {
+                                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    androidx.compose.material3.CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    Text("Carregando aplicativos…")
+                                }
+                            }
+                        } else if (appLoadError) {
+                            item {
+                                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                                    Text("Não foi possível carregar os aplicativos.")
+                                    OutlinedButton(onClick = { loadAttempt++ }) { Text("Tentar novamente") }
+                                }
+                            }
+                        } else if (filteredList.isEmpty()) {
+                            item { Text("Nenhum aplicativo encontrado.", Modifier.padding(16.dp)) }
+                        }
                         items(filteredList, key = { it.packageName }) { appItem ->
                             val existingEntity = existingEntitiesByPkg[appItem.packageName]
                             val isSelected = existingEntity?.isLimited == true
@@ -807,7 +839,7 @@ fun AppSelectionScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Por regras de disciplina do Lock In, você não pode simplesmente desmarcar um aplicativo com limite esgotado para voltar a usá-lo.\n\nEle permanecerá bloqueado até o reset diário de amanhã. Para desbloqueá-lo agora em caso de urgência, use o Desbloqueio de Confiança (exige 5 confirmações de senha e frase).",
+                        text = "Por regras de disciplina do Lock In, você não pode simplesmente desmarcar um aplicativo com limite esgotado para voltar a usá-lo.\n\nEle permanecerá bloqueado até o reset diário de amanhã. Para desbloqueá-lo agora em caso de urgência, use o Desbloqueio de Confiança (exige senha e frase conforme seu nível de Lock).",
                         fontSize = 11.5.sp,
                         color = if (isDark) Color(0xFFA1A1AA) else CmfMutedText,
                         textAlign = TextAlign.Center,
@@ -836,7 +868,7 @@ fun AppSelectionScreen(
                         ) {
                             Icon(imageVector = Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("DESBLOQUEAR COM SENHA (5X)", fontSize = 11.sp, fontFamily = BlockyFontFamily)
+                            Text("DESBLOQUEAR COM SENHA E FRASE", fontSize = 11.sp, fontFamily = BlockyFontFamily)
                         }
 
                         OutlinedButton(
@@ -905,7 +937,7 @@ fun AppSelectionScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Por regras de disciplina inegociável do Lock In, você não pode alterar ou tentar burlar o limite enquanto ele estiver em andamento.\n\nAguarde o cronômetro chegar a zero. Depois disso, você poderá redefinir o limite apenas 1 vez ao dia mediante o protocolo de segurança (5 senhas + frase).",
+                        text = "Por regras de disciplina inegociável do Lock In, você não pode alterar ou tentar burlar o limite enquanto ele estiver em andamento.\n\nAguarde o cronômetro chegar a zero. Depois disso, você poderá redefinir o limite mediante o protocolo de segurança (senha e frase), respeitando o limite diário do seu nível de Lock.",
                         fontSize = 11.5.sp,
                         color = if (isDark) Color(0xFFA1A1AA) else CmfMutedText,
                         textAlign = TextAlign.Center,
@@ -1446,7 +1478,7 @@ fun AppItemRow(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Desbloquear com Senha (5x) e Frase",
+                                    text = "Desbloquear com Senha e Frase",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )

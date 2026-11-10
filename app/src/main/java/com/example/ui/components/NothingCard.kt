@@ -27,7 +27,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.CmfMutedText
 import com.example.ui.theme.LocalCustomTextColor
 
 @Composable
@@ -37,13 +36,13 @@ fun NothingCard(
     badge: String? = null,
     backgroundColor: Color = Color.Unspecified,
     borderColor: Color = Color.Unspecified,
-    cornerRadius: Dp = 16.dp,
+    cornerRadius: Dp = 18.dp,
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     val accentColor = LocalCustomTextColor.current
     val resolvedBg = if (backgroundColor != Color.Unspecified) backgroundColor else MaterialTheme.colorScheme.surface
-    val resolvedBorder = if (borderColor != Color.Unspecified) borderColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    val resolvedBorder = if (borderColor != Color.Unspecified) borderColor else MaterialTheme.colorScheme.outlineVariant
 
     val clickableModifier = if (onClick != null) {
         modifier.tactilePress(scaleDown = 0.97f, onClick = onClick)
@@ -71,14 +70,14 @@ fun NothingCard(
                     if (title != null) {
                         Text(
                             text = title.uppercase(),
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = BlockyFontFamily,
-                            color = CmfMutedText,
-                            letterSpacing = 1.sp,
-                            maxLines = 1,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            letterSpacing = 0.5.sp,
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier.weight(1f)
                         )
                     }
                     if (title != null && badge != null) {

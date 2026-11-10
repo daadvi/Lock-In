@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.ui.tutorial.tutorialTarget
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -63,7 +65,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,6 +87,7 @@ import com.example.data.model.PartyMember
 import com.example.data.model.PartyState
 import com.example.data.model.RequestStatus
 import com.example.service.FriendsPartyManager
+import com.example.service.PartyMessageSecurity
 import com.example.ui.components.FocusRankingPodiumCard
 import com.example.ui.components.LiveActivityFeedCard
 import com.example.ui.theme.BlockyFontFamily
@@ -112,9 +115,9 @@ fun FriendsPanelScreen(
     val accentRed = Color(0xFFD71920) // Nothing Brand Red
     val accentGreen = Color(0xFF10B981)
 
-    val partyState by FriendsPartyManager.partyState.collectAsState()
-    val isJoined by FriendsPartyManager.isJoined.collectAsState()
-    val syncStatus by FriendsPartyManager.syncStatus.collectAsState()
+    val partyState by FriendsPartyManager.partyState.collectAsStateWithLifecycle()
+    val isJoined by FriendsPartyManager.isJoined.collectAsStateWithLifecycle()
+    val syncStatus by FriendsPartyManager.syncStatus.collectAsStateWithLifecycle()
     val myUserId = remember { FriendsPartyManager.getMyUserId() }
 
     var joinCodeInput by remember { mutableStateOf("") }
@@ -150,6 +153,7 @@ fun FriendsPanelScreen(
                         Column {
                             Text(
                                 text = "FRIENDS PANEL",
+                                modifier = Modifier.tutorialTarget("friends"),
                                 fontFamily = BlockyFontFamily,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 16.sp,
@@ -264,7 +268,7 @@ fun FriendsPanelScreen(
                         accentRed = accentRed,
                         onCreateParty = {
                             val code = FriendsPartyManager.createParty(context)
-                            Toast.makeText(context, "Grupo criado com sucesso! Código: $code", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Grupo criado. Copie o convite para seus amigos.", Toast.LENGTH_LONG).show()
                         }
                     )
                 }
@@ -273,18 +277,18 @@ fun FriendsPanelScreen(
                     JoinWithCodeCard(
                         code = joinCodeInput,
                         onCodeChange = { input ->
-                            joinCodeInput = input.uppercase().trim()
+                            joinCodeInput = input.take(80).uppercase().trim()
                             joinError = null
                         },
                         error = joinError,
                         onJoin = {
                             val normalized = FriendsPartyManager.normalizeCode(joinCodeInput)
-                            if (normalized.length < 4) {
-                                joinError = "Digite um código válido de grupo (ex: LCK-4829)"
+                            if (!PartyMessageSecurity.isValidCode(normalized)) {
+                                joinError = "Cole o convite completo LCK2 enviado pelo seu amigo. Códigos antigos precisam ser recriados."
                             } else {
                                 val success = FriendsPartyManager.joinParty(context, normalized)
                                 if (success) {
-                                    Toast.makeText(context, "Conectado ao grupo $normalized!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Convite aceito. Aguardando sincronização dos amigos.", Toast.LENGTH_SHORT).show()
                                 } else {
                                     joinError = "Código inválido ou indisponível."
                                 }
@@ -314,6 +318,17 @@ fun FriendsPanelScreen(
                 val state = partyState!!
                 val isHost = state.hostUserId == myUserId
 
+                if (!PartyMessageSecurity.isValidCode(state.partyCode)) {
+                    item {
+                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                            Text("Este grupo usa um código antigo e a sincronização foi pausada para proteger seus dados. Recrie o grupo e envie o novo convite aos amigos.", color = textColor)
+                            Button(onClick = {
+                                FriendsPartyManager.forceLeaveParty(context)
+                                FriendsPartyManager.createParty(context, state.partyName)
+                            }) { Text("RECRIAR COM CONVITE SEGURO") }
+                        }
+                    }
+                }
                 // Party Header Pill
                 item {
                     PartyHeaderCard(
@@ -326,8 +341,12 @@ fun FriendsPanelScreen(
                         accentRed = accentRed,
                         onCopyCode = {
                             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                            cm?.setPrimaryClip(ClipData.newPlainText("Código Grupo Lock In", state.partyCode))
-                            Toast.makeText(context, "Código copiado: ${state.partyCode}", Toast.LENGTH_SHORT).show()
+                            val invitation = ClipData.newPlainText("Convite privado Lock In", state.partyCode)
+                            invitation.description.extras = android.os.PersistableBundle().apply {
+                                putBoolean("android.content.extra.IS_SENSITIVE", true)
+                            }
+                            cm?.setPrimaryClip(invitation)
+                            Toast.makeText(context, "Convite copiado. Compartilhe em particular.", Toast.LENGTH_SHORT).show()
                         }
                     )
                 }
@@ -638,7 +657,7 @@ private fun JoinWithCodeCard(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Insira o código gerado pelo seu amigo (ex: LCK-4829)",
+                text = "Cole o convite seguro do seu amigo. Compartilhe apenas com quem você confia.",
                 fontSize = 12.sp,
                 color = subtextColor
             )
@@ -648,7 +667,7 @@ private fun JoinWithCodeCard(
             OutlinedTextField(
                 value = code,
                 onValueChange = onCodeChange,
-                placeholder = { Text("LCK-0000", color = subtextColor.copy(alpha = 0.6f)) },
+                placeholder = { Text("LCK2-…", color = subtextColor.copy(alpha = 0.6f)) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("friends_code_input_field"),
@@ -681,8 +700,8 @@ private fun JoinWithCodeCard(
                     .height(48.dp)
                     .testTag("friends_join_party_button"),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = textColor,
-                    contentColor = if (textColor == Color.White) Color.Black else Color.White
+                    containerColor = if (LocalIsDarkTheme.current) MaterialTheme.colorScheme.surfaceVariant else textColor,
+                    contentColor = if (LocalIsDarkTheme.current) MaterialTheme.colorScheme.onSurfaceVariant else Color.White
                 ),
                 shape = RoundedCornerShape(12.dp)
             ) {
@@ -726,7 +745,7 @@ private fun HowItWorksInfoCard(
                 fontFamily = BlockyFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp,
-                color = accentRed
+                color = if (LocalIsDarkTheme.current) Color(0xFFFF7A82) else accentRed
             )
             Text(
                 text = "1. Crie o grupo e envie o código para seu amigo.\n" +
@@ -824,7 +843,7 @@ private fun PartyHeaderCard(
                             color = subtextColor
                         )
                         Text(
-                            text = state.partyCode,
+                            text = if (PartyMessageSecurity.isValidCode(state.partyCode)) "LCK2 • TOQUE PARA COPIAR" else state.partyCode,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace,

@@ -23,6 +23,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +33,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
 
 object FriendsPartyManager {
@@ -49,6 +51,7 @@ object FriendsPartyManager {
         return prefs.getBoolean(KEY_SHARE_DETAILED_SCREEN_TIME, true)
     }
 
+    @Synchronized
     fun setSharingDetailedScreenTime(context: Context, share: Boolean) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putBoolean(KEY_SHARE_DETAILED_SCREEN_TIME, share).apply()
@@ -78,7 +81,10 @@ object FriendsPartyManager {
     private const val ACTION_REQUEST_LEAVE = "ACTION_REQUEST_LEAVE"
     private const val ACTION_RESOLVE_LEAVE = "ACTION_RESOLVE_LEAVE"
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val sessionGeneration = AtomicLong()
+    private const val MAX_MEMBERS = 20
+    private const val MAX_REQUESTS = 100
     private var syncJob: Job? = null
 
     private val _partyState = MutableStateFlow<PartyState?>(null)
@@ -96,7 +102,8 @@ object FriendsPartyManager {
     // Map of packageName to expiry epoch timestamp (millis)
     private val temporarilyAllowedPackages = ConcurrentHashMap<String, Long>()
     private val handledEventIds = ConcurrentHashMap.newKeySet<String>()
-    private var lastPollTimestamp = 0L
+    @Volatile
+    private var lastPollCursor: String? = null
 
     fun revokeTemporaryAllowance(packageName: String) {
         temporarilyAllowedPackages.remove(packageName)
@@ -156,6 +163,12 @@ object FriendsPartyManager {
      */
     fun startCloudSyncLoop(context: Context) {
         syncJob?.cancel()
+        val party = _partyState.value ?: return
+        if (!PartyMessageSecurity.isValidCode(party.partyCode)) {
+            _syncStatus.value = "Grupo antigo: recrie com convite seguro"
+            return
+        }
+        val generation = sessionGeneration.get()
         syncJob = scope.launch {
             while (isActive) {
                 try {
@@ -165,16 +178,15 @@ object FriendsPartyManager {
                         continue
                     }
 
-                    _syncStatus.value = "🟢 Nuvem Ativa"
-                    val events = FriendsPartyCloudClient.pollEvents(current.partyCode, lastPollTimestamp)
-                    if (events.isNotEmpty()) {
-                        lastPollTimestamp = events.maxOf { it.timestamp }
-                        events.forEach { event ->
-                            if (!handledEventIds.contains(event.eventId)) {
-                                handledEventIds.add(event.eventId)
-                                processIncomingCloudEvent(context, event)
-                            }
-                        }
+                    if (generation != sessionGeneration.get()) return@launch
+                    _syncStatus.value = "🟢 Conectado"
+                    val batch = FriendsPartyCloudClient.pollEvents(current.partyCode, lastPollCursor)
+                    synchronized(this@FriendsPartyManager) {
+                        if (generation != sessionGeneration.get() || _partyState.value?.partyCode != current.partyCode) return@launch
+                        lastPollCursor = batch.nextCursor
+                    }
+                    batch.events.forEach { event ->
+                        acceptSessionEvent(context, event, current.partyCode, generation)
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -194,6 +206,7 @@ object FriendsPartyManager {
         scope.launch {
             try {
                 val current = _partyState.value ?: return@launch
+                val generation = sessionGeneration.get()
                 val myId = getMyUserId()
                 val myName = getMyDisplayName(context)
 
@@ -234,10 +247,6 @@ object FriendsPartyManager {
                     }
                 } catch (_: Exception) {}
 
-                if (topAppsList.isEmpty()) {
-                    topAppsList.add(FriendAppUsage("com.whatsapp", "WhatsApp", 2400L))
-                    topAppsList.add(FriendAppUsage("com.google.android.youtube", "YouTube", 1800L))
-                }
 
                 val myMemberUpdated = PartyMember(
                     userId = myId,
@@ -253,7 +262,9 @@ object FriendsPartyManager {
                     shareDetailedScreenTime = isSharingDetailedScreenTime(context)
                 )
 
+                synchronized(this@FriendsPartyManager) {
                 val latest = _partyState.value ?: return@launch
+                if (latest.partyCode != current.partyCode || generation != sessionGeneration.get()) return@launch
                 val updatedMembers = latest.members.filter { it.userId != myId } + myMemberUpdated
                 val currentPendingInstalls = _partyState.value?.pendingInstallRequests ?: latest.pendingInstallRequests
                 val currentPendingLeaves = _partyState.value?.pendingLeaveRequests ?: latest.pendingLeaveRequests
@@ -267,6 +278,7 @@ object FriendsPartyManager {
 
                 // Publish my stats to cloud room so friends see live updates
                 broadcastMemberSync(current.partyCode, myMemberUpdated)
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "Error refreshing my stats: ${e.message}")
             }
@@ -274,11 +286,12 @@ object FriendsPartyManager {
     }
 
     /**
-     * Creates a new Party with a clean 6-character code and registers in cloud room.
+     * Creates a party using an unguessable invitation secret.
      */
+    @Synchronized
     fun createParty(context: Context, partyName: String? = null): String {
-        val codeNumber = (1000..9999).random()
-        val partyCode = "LCK-$codeNumber"
+        val partyCode = PartyMessageSecurity.createCode()
+        resetSessionTracking()
         val myId = getMyUserId()
         val myName = getMyDisplayName(context)
 
@@ -286,14 +299,11 @@ object FriendsPartyManager {
             userId = myId,
             displayName = myName,
             isHost = true,
-            screenTimeSecondsToday = 3600L,
+            screenTimeSecondsToday = 0L,
             screenTimeLimitMinutes = ScreenTimeManager.limitMinutesFlow.value.coerceAtLeast(60),
-            topApps = listOf(
-                FriendAppUsage("com.whatsapp", "WhatsApp", 1800L),
-                FriendAppUsage("com.google.android.youtube", "YouTube", 1200L)
-            ),
-            respectPercentage = 95,
-            respectMinutesToday = 180,
+            topApps = emptyList(),
+            respectPercentage = 100,
+            respectMinutesToday = 0,
             streakDays = StreakManager.getStreak(context).coerceAtLeast(1),
             isOnline = true,
             shareDetailedScreenTime = isSharingDetailedScreenTime(context)
@@ -301,7 +311,7 @@ object FriendsPartyManager {
 
         val newState = PartyState(
             partyCode = partyCode,
-            partyName = partyName?.ifBlank { "Lock In Party #$codeNumber" } ?: "Lock In Party #$codeNumber",
+            partyName = partyName?.take(80)?.ifBlank { "Lock In Party" } ?: "Lock In Party",
             hostUserId = myId,
             members = listOf(hostMember),
             pendingInstallRequests = emptyList(),
@@ -342,6 +352,7 @@ object FriendsPartyManager {
         addAlert(context, alert)
     }
 
+    @Synchronized
     fun addAlert(context: Context, alert: PartyAlert) {
         val current = _partyState.value ?: return
         val updatedAlerts = listOf(alert) + current.alerts.take(20)
@@ -353,9 +364,11 @@ object FriendsPartyManager {
     /**
      * Joins an existing party using a code and connects via cloud room.
      */
+    @Synchronized
     fun joinParty(context: Context, code: String): Boolean {
         val cleanCode = normalizeCode(code)
-        if (cleanCode.length < 4) return false
+        if (!PartyMessageSecurity.isValidCode(cleanCode)) return false
+        resetSessionTracking()
 
         val myId = getMyUserId()
         val myName = getMyDisplayName(context)
@@ -379,7 +392,7 @@ object FriendsPartyManager {
 
         val newState = PartyState(
             partyCode = cleanCode,
-            partyName = "Lock In Party $cleanCode",
+            partyName = "Lock In Party",
             hostUserId = "",
             members = listOf(myMember),
             pendingInstallRequests = emptyList(),
@@ -389,48 +402,35 @@ object FriendsPartyManager {
 
         _partyState.value = newState
         _isJoined.value = true
-        lastPollTimestamp = 0L
+        lastPollCursor = null
         savePartyToPrefs(context, newState)
         startCloudSyncLoop(context.applicationContext)
         refreshMyStats(context)
 
-        // Query cloud room to discover existing members immediately
-        scope.launch {
-            try {
-                val events = FriendsPartyCloudClient.pollEvents(cleanCode, 0L)
-                val discoveredMembers = mutableListOf<PartyMember>()
-                events.forEach { event ->
-                    if (event.action == ACTION_SYNC_MEMBER) {
-                        val m = deserializePartyMember(event.payload)
-                        if (m.userId.isNotBlank() && m.userId != myId) {
-                            discoveredMembers.add(m)
-                        }
-                    }
-                }
-                if (discoveredMembers.isNotEmpty()) {
-                    val latest = _partyState.value ?: return@launch
-                    val merged = (latest.members.filter { it.userId == myId } + discoveredMembers).distinctBy { it.userId }
-                    val updated = latest.copy(members = merged)
-                    _partyState.value = updated
-                    savePartyToPrefs(context, updated)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error discovering existing members: ${e.message}")
-            }
-
-            // Announce presence in the room
-            broadcastMemberSync(cleanCode, myMember)
-        }
-
+        // Polling and discovery use the same guarded event path. No detached room results.
+        broadcastMemberSync(cleanCode, myMember)
         return true
     }
 
-    fun normalizeCode(input: String): String {
-        var clean = input.trim().uppercase().replace(" ", "")
-        if (clean.matches(Regex("^[0-9]{4}$"))) {
-            clean = "LCK-$clean"
+    fun normalizeCode(input: String): String = PartyMessageSecurity.normalizeCode(input)
+
+    @Synchronized
+    private fun acceptSessionEvent(context: Context, event: CloudPartyEvent, code: String, generation: Long) {
+        if (sessionGeneration.get() != generation || _partyState.value?.partyCode != code) return
+        if (!handledEventIds.add(event.eventId)) return
+        if (handledEventIds.size > 2048) {
+            handledEventIds.clear()
+            handledEventIds.add(event.eventId)
         }
-        return clean
+        processIncomingCloudEvent(context, event)
+    }
+
+    private fun resetSessionTracking() {
+        sessionGeneration.incrementAndGet()
+        syncJob?.cancel()
+        handledEventIds.clear()
+        temporarilyAllowedPackages.clear()
+        lastPollCursor = null
     }
 
     /**
@@ -452,7 +452,7 @@ object FriendsPartyManager {
      * Temporarily allows a package to be installed or opened for [durationMinutes].
      */
     fun allowTemporaryInstall(packageName: String, durationMinutes: Int = 10) {
-        val expiry = System.currentTimeMillis() + (durationMinutes * 60 * 1000L)
+        val expiry = System.currentTimeMillis() + (durationMinutes.coerceIn(1, 10) * 60_000L)
         temporarilyAllowedPackages[packageName] = expiry
     }
 
@@ -477,25 +477,28 @@ object FriendsPartyManager {
      * When a blacklisted app installation is attempted, creates an approval request.
      * Broadcasts real-time notification to other party members via Cloud Relay.
      */
+    @Synchronized
     fun requestInstallApproval(
         context: Context,
         targetPackage: String,
         targetAppName: String
     ): InstallApprovalRequest? {
         val current = _partyState.value ?: return null
+        if (!PartyMessageSecurity.isValidCode(current.partyCode) || targetPackage.isBlank() || targetPackage.length > 255) return null
+        if (current.pendingInstallRequests.count { it.status == RequestStatus.PENDING } >= MAX_REQUESTS) return null
         val myId = getMyUserId()
         val myName = getMyDisplayName(context)
 
         // Check if an identical pending request already exists
         val existing = current.pendingInstallRequests.find {
-            it.targetPackage.equals(targetPackage, ignoreCase = true) && it.status == RequestStatus.PENDING
+            it.requesterId == myId && it.targetPackage == targetPackage && it.status == RequestStatus.PENDING
         }
         if (existing != null) {
             return existing
         }
 
         val request = InstallApprovalRequest(
-            requestId = "req_inst_" + UUID.randomUUID().toString().take(8),
+            requestId = "req_inst_" + UUID.randomUUID().toString(),
             requesterId = myId,
             requesterName = myName,
             targetPackage = targetPackage,
@@ -504,7 +507,7 @@ object FriendsPartyManager {
             status = RequestStatus.PENDING
         )
 
-        val updatedList = current.pendingInstallRequests + request
+        val updatedList = trimInstallHistory(current.pendingInstallRequests) + request
         val updatedState = current.copy(pendingInstallRequests = updatedList)
         _partyState.value = updatedState
         savePartyToPrefs(context, updatedState)
@@ -529,6 +532,7 @@ object FriendsPartyManager {
      * Responds to an installation request (Approve or Reject).
      * If approved, grants a 10-minute install window and broadcasts response to party.
      */
+    @Synchronized
     fun respondToInstallRequest(
         context: Context,
         requestId: String,
@@ -538,33 +542,20 @@ object FriendsPartyManager {
         val myId = getMyUserId()
         val myName = getMyDisplayName(context)
 
-        var matchedPackage: String? = null
-        var targetAppName = "App"
-        var requesterId = ""
-
+        val request = current.pendingInstallRequests.firstOrNull { it.requestId == requestId } ?: return false
+        if (request.status != RequestStatus.PENDING || request.requesterId == myId || current.members.none { it.userId == myId }) return false
+        val matchedPackage = request.targetPackage
+        val targetAppName = request.targetAppName
         val updatedRequests = current.pendingInstallRequests.map { req ->
-            if (req.requestId == requestId && req.status == RequestStatus.PENDING) {
-                matchedPackage = req.targetPackage
-                targetAppName = req.targetAppName
-                requesterId = req.requesterId
-                req.copy(
-                    status = if (approved) RequestStatus.APPROVED else RequestStatus.REJECTED,
-                    resolvedById = myId,
-                    resolvedByName = myName,
-                    resolvedEpoch = System.currentTimeMillis()
-                )
-            } else {
-                req
-            }
+            if (req.requestId == requestId) req.copy(
+                status = if (approved) RequestStatus.APPROVED else RequestStatus.REJECTED,
+                resolvedById = myId, resolvedByName = myName, resolvedEpoch = System.currentTimeMillis()
+            ) else req
         }
-
         val updatedState = current.copy(pendingInstallRequests = updatedRequests)
         _partyState.value = updatedState
         savePartyToPrefs(context, updatedState)
-
-        if (approved && !matchedPackage.isNullOrBlank()) {
-            allowTemporaryInstall(matchedPackage!!, 10)
-        }
+        // Only the requester's device receives a temporary allowance from the peer event.
 
         // Broadcast resolution to cloud room
         scope.launch {
@@ -573,7 +564,7 @@ object FriendsPartyManager {
                 put("status", if (approved) RequestStatus.APPROVED.name else RequestStatus.REJECTED.name)
                 put("resolvedById", myId)
                 put("resolvedByName", myName)
-                put("targetPackage", matchedPackage ?: "")
+                put("targetPackage", matchedPackage)
                 put("targetAppName", targetAppName)
             }
             FriendsPartyCloudClient.publishEvent(
@@ -597,9 +588,14 @@ object FriendsPartyManager {
      *
      * @return Pair<Boolean, String> where first is success/allowed, second is informational message.
      */
+    @Synchronized
     fun requestLeaveParty(context: Context): Pair<Boolean, String> {
         val current = _partyState.value ?: return Pair(true, "Você não está em nenhuma party.")
 
+        if (!PartyMessageSecurity.isValidCode(current.partyCode)) {
+            forceLeaveParty(context)
+            return true to "Grupo antigo removido. Crie um grupo com convite seguro."
+        }
         // RULE 1: Cannot leave while an install request is pending!
         if (hasPendingInstallRequest()) {
             return Pair(
@@ -610,10 +606,7 @@ object FriendsPartyManager {
 
         // Check if user is the sole member
         if (current.members.size <= 1) {
-            _partyState.value = null
-            _isJoined.value = false
-            syncJob?.cancel()
-            clearPartyPrefs(context)
+            forceLeaveParty(context)
             return Pair(true, "Você despareou e saiu do grupo com sucesso.")
         }
 
@@ -631,9 +624,10 @@ object FriendsPartyManager {
             )
         }
 
+        if (current.pendingLeaveRequests.count { it.status == RequestStatus.PENDING } >= MAX_REQUESTS) return false to "Limite de solicitações atingido."
         // RULE 2: Unpairing requires approval of another member!
         val leaveReq = LeaveApprovalRequest(
-            requestId = "req_leave_" + UUID.randomUUID().toString().take(8),
+            requestId = "req_leave_" + UUID.randomUUID().toString(),
             requesterId = myId,
             requesterName = myName,
             timestamp = System.currentTimeMillis(),
@@ -641,7 +635,7 @@ object FriendsPartyManager {
         )
 
         val updatedState = current.copy(
-            pendingLeaveRequests = current.pendingLeaveRequests + leaveReq
+            pendingLeaveRequests = trimLeaveHistory(current.pendingLeaveRequests) + leaveReq
         )
         _partyState.value = updatedState
         savePartyToPrefs(context, updatedState)
@@ -668,6 +662,7 @@ object FriendsPartyManager {
     /**
      * Responds to a member's request to leave the party.
      */
+    @Synchronized
     fun respondToLeaveRequest(
         context: Context,
         requestId: String,
@@ -677,51 +672,28 @@ object FriendsPartyManager {
         val myId = getMyUserId()
         val myName = getMyDisplayName(context)
 
-        var leavingMemberId: String? = null
-        var leavingMemberName = "Membro"
-
+        val request = current.pendingLeaveRequests.firstOrNull { it.requestId == requestId } ?: return false
+        if (request.status != RequestStatus.PENDING || request.requesterId == myId || current.members.none { it.userId == myId }) return false
+        val leavingMemberId = request.requesterId
+        val leavingMemberName = request.requesterName
         val updatedRequests = current.pendingLeaveRequests.map { req ->
-            if (req.requestId == requestId && req.status == RequestStatus.PENDING) {
-                leavingMemberId = req.requesterId
-                leavingMemberName = req.requesterName
-                req.copy(
-                    status = if (approved) RequestStatus.APPROVED else RequestStatus.REJECTED,
-                    resolvedById = myId,
-                    resolvedByName = myName,
-                    resolvedEpoch = System.currentTimeMillis()
-                )
-            } else {
-                req
-            }
+            if (req.requestId == requestId) req.copy(
+                status = if (approved) RequestStatus.APPROVED else RequestStatus.REJECTED,
+                resolvedById = myId, resolvedByName = myName, resolvedEpoch = System.currentTimeMillis()
+            ) else req
         }
-
-        if (approved && leavingMemberId != null) {
-            if (leavingMemberId == myId) {
-                // Current user was approved to leave!
-                _partyState.value = null
-                _isJoined.value = false
-                syncJob?.cancel()
-                clearPartyPrefs(context)
-            } else {
-                val remainingMembers = current.members.filter { it.userId != leavingMemberId }
-                val updatedState = current.copy(
-                    members = remainingMembers,
-                    pendingLeaveRequests = updatedRequests
-                )
-                _partyState.value = updatedState
-                savePartyToPrefs(context, updatedState)
-            }
-        } else {
-            val updatedState = current.copy(pendingLeaveRequests = updatedRequests)
-            _partyState.value = updatedState
-            savePartyToPrefs(context, updatedState)
-        }
+        val updated = current.copy(
+            members = if (approved) current.members.filter { it.userId != leavingMemberId } else current.members,
+            pendingLeaveRequests = updatedRequests
+        )
+        _partyState.value = updated
+        savePartyToPrefs(context, updated)
 
         // Broadcast leave resolution to cloud room
         scope.launch {
             val payload = JSONObject().apply {
                 put("requestId", requestId)
-                put("leavingMemberId", leavingMemberId ?: "")
+                put("leavingMemberId", leavingMemberId)
                 put("leavingMemberName", leavingMemberName)
                 put("status", if (approved) RequestStatus.APPROVED.name else RequestStatus.REJECTED.name)
                 put("resolvedById", myId)
@@ -745,7 +717,8 @@ object FriendsPartyManager {
      */
     private fun broadcastMemberSync(partyCode: String, member: PartyMember) {
         scope.launch {
-            val payload = serializePartyMember(member)
+            if (_partyState.value?.partyCode != partyCode) return@launch
+            val payload = serializeMemberForNetwork(member)
             FriendsPartyCloudClient.publishEvent(
                 partyCode = partyCode,
                 action = ACTION_SYNC_MEMBER,
@@ -758,117 +731,83 @@ object FriendsPartyManager {
     /**
      * Ingests an incoming cloud event from a connected peer.
      */
-    private fun processIncomingCloudEvent(context: Context, event: CloudPartyEvent) {
+    @Synchronized
+    internal fun processIncomingCloudEvent(context: Context, event: CloudPartyEvent) {
+        try {
+            processValidCloudEvent(context, event)
+        } catch (_: org.json.JSONException) {
+            // A malformed peer message must not discard the rest of the batch or stop sync.
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    private fun processValidCloudEvent(context: Context, event: CloudPartyEvent) {
         val myId = getMyUserId()
-        if (event.senderId == myId) return // Ignore echo from self
-
+        if (event.senderId.isBlank() || event.senderId.length > 128 || event.senderId == myId) return
         val current = _partyState.value ?: return
-
+        if (!PartyMessageSecurity.isValidCode(current.partyCode)) return
+        if (event.action == ACTION_SYNC_MEMBER) {
+            val member = deserializePartyMember(event.payload)
+            if (member.userId != event.senderId || member.userId == myId) return
+            if (current.members.none { it.userId == member.userId } && current.members.size >= MAX_MEMBERS) return
+            val updated = current.copy(members = current.members.filter { it.userId != member.userId } + member)
+            _partyState.value = updated
+            savePartyToPrefs(context, updated)
+            return
+        }
+        val sender = current.members.firstOrNull { it.userId == event.senderId } ?: return
         when (event.action) {
-            ACTION_SYNC_MEMBER -> {
-                val member = deserializePartyMember(event.payload)
-                if (member.userId.isNotBlank()) {
-                    val otherMembers = current.members.filter { it.userId != member.userId }
-                    val updated = current.copy(members = otherMembers + member)
-                    _partyState.value = updated
-                    savePartyToPrefs(context, updated)
-                }
-            }
-
             ACTION_REQUEST_INSTALL -> {
                 val req = deserializeInstallRequest(event.payload)
-                if (req.requestId.isNotBlank()) {
-                    val existing = current.pendingInstallRequests.filter { it.requestId != req.requestId }
-                    val updated = current.copy(pendingInstallRequests = existing + req)
-                    _partyState.value = updated
-                    savePartyToPrefs(context, updated)
-
-                    showNotification(
-                        context = context,
-                        notificationId = 8801,
-                        title = "⚠️ Pedido de Instalação: ${req.targetAppName}",
-                        body = "${req.requesterName} solicitou instalar ${req.targetAppName} da lista de bloqueio. Abra o Friends Panel para autorizar ou recusar!"
-                    )
-                }
-            }
-
-            ACTION_RESOLVE_INSTALL -> {
-                val reqId = event.payload.optString("requestId")
-                val statusStr = event.payload.optString("status")
-                val resolverName = event.payload.optString("resolvedByName", "Amigo")
-                val targetPkg = event.payload.optString("targetPackage")
-                val targetApp = event.payload.optString("targetAppName", "App")
-                val isApproved = statusStr == RequestStatus.APPROVED.name
-
-                val updatedReqs = current.pendingInstallRequests.map { r ->
-                    if (r.requestId == reqId) {
-                        r.copy(
-                            status = if (isApproved) RequestStatus.APPROVED else RequestStatus.REJECTED,
-                            resolvedByName = resolverName,
-                            resolvedEpoch = System.currentTimeMillis()
-                        )
-                    } else r
-                }
-
-                val updated = current.copy(pendingInstallRequests = updatedReqs)
+                if (req.requestId.isBlank() || req.requestId.length > 128 || req.requesterId != sender.userId ||
+                    event.payload.optString("status") != RequestStatus.PENDING.name || req.status != RequestStatus.PENDING || req.targetPackage.isBlank() || req.targetPackage.length > 255 ||
+                    current.pendingInstallRequests.count { it.status == RequestStatus.PENDING } >= MAX_REQUESTS || current.pendingInstallRequests.any { it.requestId == req.requestId }) return
+                val updated = current.copy(pendingInstallRequests = trimInstallHistory(current.pendingInstallRequests) + req.copy(requesterName = sender.displayName))
                 _partyState.value = updated
                 savePartyToPrefs(context, updated)
-
-                if (isApproved && targetPkg.isNotBlank()) {
-                    allowTemporaryInstall(targetPkg, 10)
-                    showNotification(
-                        context = context,
-                        notificationId = 8802,
-                        title = "✅ Instalação Permitida!",
-                        body = "$resolverName permitiu a instalação de $targetApp. Você tem 10 minutos para concluir no seu aparelho."
-                    )
-                } else if (!isApproved) {
-                    showNotification(
-                        context = context,
-                        notificationId = 8803,
-                        title = "❌ Instalação Recusada",
-                        body = "$resolverName recusou a instalação de $targetApp. O bloqueio permanece ativo."
-                    )
+                showNotification(context, 8801, "Pedido de instalação", "${sender.displayName} pediu autorização para ${req.targetAppName}.")
+            }
+            ACTION_RESOLVE_INSTALL -> {
+                val req = current.pendingInstallRequests.firstOrNull { it.requestId == event.payload.optString("requestId") } ?: return
+                val status = resolutionStatus(event.payload) ?: return
+                if (req.status != RequestStatus.PENDING || req.requesterId == sender.userId) return
+                val updated = current.copy(pendingInstallRequests = current.pendingInstallRequests.map {
+                    if (it.requestId == req.requestId) it.copy(status = status, resolvedById = sender.userId,
+                        resolvedByName = sender.displayName, resolvedEpoch = System.currentTimeMillis()) else it
+                })
+                _partyState.value = updated
+                savePartyToPrefs(context, updated)
+                if (req.requesterId == myId) {
+                    if (status == RequestStatus.APPROVED) allowTemporaryInstall(req.targetPackage)
+                    showNotification(context, 8802, if (status == RequestStatus.APPROVED) "Instalação permitida" else "Instalação recusada",
+                        "${sender.displayName} respondeu ao pedido para ${req.targetAppName}.")
                 }
             }
-
             ACTION_REQUEST_LEAVE -> {
                 val req = deserializeLeaveRequest(event.payload)
-                if (req.requestId.isNotBlank()) {
-                    val existing = current.pendingLeaveRequests.filter { it.requestId != req.requestId }
-                    val updated = current.copy(pendingLeaveRequests = existing + req)
-                    _partyState.value = updated
-                    savePartyToPrefs(context, updated)
-
-                    showNotification(
-                        context = context,
-                        notificationId = 8804,
-                        title = "🚪 Pedido de Despareamento",
-                        body = "${req.requesterName} solicitou sair da party. Abra o Friends Panel para autorizar a saída."
-                    )
-                }
+                if (req.requestId.isBlank() || req.requestId.length > 128 || req.requesterId != sender.userId ||
+                    event.payload.optString("status") != RequestStatus.PENDING.name || req.status != RequestStatus.PENDING || current.pendingLeaveRequests.count { it.status == RequestStatus.PENDING } >= MAX_REQUESTS ||
+                    current.pendingLeaveRequests.any { it.requestId == req.requestId }) return
+                val updated = current.copy(pendingLeaveRequests = trimLeaveHistory(current.pendingLeaveRequests) + req.copy(requesterName = sender.displayName))
+                _partyState.value = updated
+                savePartyToPrefs(context, updated)
+                showNotification(context, 8804, "Pedido de despareamento", "${sender.displayName} pediu para sair do grupo.")
             }
-
             ACTION_RESOLVE_LEAVE -> {
-                val reqId = event.payload.optString("requestId")
-                val leavingId = event.payload.optString("leavingMemberId")
-                val isApproved = event.payload.optString("status") == RequestStatus.APPROVED.name
-
-                if (isApproved && leavingId == myId) {
-                    // I was authorized to leave!
-                    _partyState.value = null
-                    _isJoined.value = false
-                    syncJob?.cancel()
-                    clearPartyPrefs(context)
-                    showNotification(
-                        context = context,
-                        notificationId = 8805,
-                        title = "✅ Despareamento Concluído",
-                        body = "Seu pedido de saída foi aprovado pelos seus amigos. Você não está mais na party."
+                val req = current.pendingLeaveRequests.firstOrNull { it.requestId == event.payload.optString("requestId") } ?: return
+                val status = resolutionStatus(event.payload) ?: return
+                if (req.status != RequestStatus.PENDING || req.requesterId == sender.userId) return
+                if (status == RequestStatus.APPROVED && req.requesterId == myId) {
+                    forceLeaveParty(context)
+                    showNotification(context, 8805, "Despareamento concluído", "Seu pedido de saída foi aprovado.")
+                } else {
+                    val updated = current.copy(
+                        members = if (status == RequestStatus.APPROVED) current.members.filter { it.userId != req.requesterId } else current.members,
+                        pendingLeaveRequests = current.pendingLeaveRequests.map {
+                            if (it.requestId == req.requestId) it.copy(status = status, resolvedById = sender.userId,
+                                resolvedByName = sender.displayName, resolvedEpoch = System.currentTimeMillis()) else it
+                        }
                     )
-                } else if (isApproved && leavingId.isNotBlank()) {
-                    val remaining = current.members.filter { it.userId != leavingId }
-                    val updated = current.copy(members = remaining)
                     _partyState.value = updated
                     savePartyToPrefs(context, updated)
                 }
@@ -876,22 +815,45 @@ object FriendsPartyManager {
         }
     }
 
+    private fun trimInstallHistory(requests: List<InstallApprovalRequest>): List<InstallApprovalRequest> {
+        val pending = requests.filter { it.status == RequestStatus.PENDING }
+        return pending + requests.filter { it.status != RequestStatus.PENDING }.takeLast((MAX_REQUESTS - pending.size - 1).coerceAtLeast(0))
+    }
+
+    private fun trimLeaveHistory(requests: List<LeaveApprovalRequest>): List<LeaveApprovalRequest> {
+        val pending = requests.filter { it.status == RequestStatus.PENDING }
+        return pending + requests.filter { it.status != RequestStatus.PENDING }.takeLast((MAX_REQUESTS - pending.size - 1).coerceAtLeast(0))
+    }
+
+    private fun resolutionStatus(payload: JSONObject): RequestStatus? = when (payload.optString("status")) {
+        RequestStatus.APPROVED.name -> RequestStatus.APPROVED
+        RequestStatus.REJECTED.name -> RequestStatus.REJECTED
+        else -> null
+    }
+
+    internal fun serializeMemberForNetwork(member: PartyMember): JSONObject = serializePartyMember(
+        if (member.shareDetailedScreenTime) member else member.copy(topApps = emptyList(), screenTimeSecondsToday = 0L)
+    )
+
     /**
      * Force leave / reset for testing or clean slate.
      */
+    @Synchronized
     fun forceLeaveParty(context: Context) {
-        syncJob?.cancel()
+        resetSessionTracking()
         syncJob = null
         _partyState.value = null
         _isJoined.value = false
         handledEventIds.clear()
         temporarilyAllowedPackages.clear()
-        lastPollTimestamp = 0L
+        lastPollCursor = null
         clearPartyPrefs(context)
     }
 
+    @Synchronized
     fun addMember(context: Context, member: PartyMember) {
         val current = _partyState.value ?: return
+        if (current.members.none { it.userId == member.userId } && current.members.size >= MAX_MEMBERS) return
         val updated = current.copy(members = current.members.filter { it.userId != member.userId } + member)
         _partyState.value = updated
         savePartyToPrefs(context, updated)
@@ -961,7 +923,7 @@ object FriendsPartyManager {
     private fun serializePartyMember(m: PartyMember): JSONObject {
         val mObj = JSONObject()
         mObj.put("userId", m.userId)
-        mObj.put("displayName", m.displayName)
+        mObj.put("displayName", m.displayName.take(80))
         mObj.put("isHost", m.isHost)
         mObj.put("screenTimeSecondsToday", m.screenTimeSecondsToday)
         mObj.put("screenTimeLimitMinutes", m.screenTimeLimitMinutes)
@@ -974,10 +936,10 @@ object FriendsPartyManager {
         mObj.put("shareDetailedScreenTime", m.shareDetailedScreenTime)
 
         val appsArray = JSONArray()
-        m.topApps.forEach { app ->
+        m.topApps.take(4).forEach { app ->
             val appObj = JSONObject()
-            appObj.put("packageName", app.packageName)
-            appObj.put("appName", app.appName)
+            appObj.put("packageName", app.packageName.take(255))
+            appObj.put("appName", app.appName.take(80))
             appObj.put("usageSeconds", app.usageSeconds)
             appsArray.put(appObj)
         }
@@ -989,7 +951,7 @@ object FriendsPartyManager {
         val apps = mutableListOf<FriendAppUsage>()
         val appsArray = mObj.optJSONArray("topApps")
         if (appsArray != null) {
-            for (j in 0 until appsArray.length()) {
+            for (j in 0 until minOf(appsArray.length(), 20)) {
                 val appObj = appsArray.getJSONObject(j)
                 apps.add(
                     FriendAppUsage(
@@ -1002,12 +964,12 @@ object FriendsPartyManager {
         }
         return PartyMember(
             userId = mObj.optString("userId"),
-            displayName = mObj.optString("displayName", "Amigo"),
+            displayName = mObj.optString("displayName", "Amigo").take(80),
             isHost = mObj.optBoolean("isHost"),
             screenTimeSecondsToday = mObj.optLong("screenTimeSecondsToday"),
             screenTimeLimitMinutes = mObj.optInt("screenTimeLimitMinutes", 180),
             topApps = apps,
-            respectPercentage = mObj.optInt("respectPercentage", 100),
+            respectPercentage = mObj.optInt("respectPercentage", 100).coerceIn(0, 100),
             respectMinutesToday = mObj.optInt("respectMinutesToday", 180),
             streakDays = mObj.optInt("streakDays", 0),
             violationsToday = mObj.optInt("violationsToday", 0),
@@ -1021,9 +983,9 @@ object FriendsPartyManager {
         val rObj = JSONObject()
         rObj.put("requestId", req.requestId)
         rObj.put("requesterId", req.requesterId)
-        rObj.put("requesterName", req.requesterName)
+        rObj.put("requesterName", req.requesterName.take(80))
         rObj.put("targetPackage", req.targetPackage)
-        rObj.put("targetAppName", req.targetAppName)
+        rObj.put("targetAppName", req.targetAppName.take(80))
         rObj.put("timestamp", req.timestamp)
         rObj.put("status", req.status.name)
         req.resolvedById?.let { rObj.put("resolvedById", it) }
@@ -1055,7 +1017,7 @@ object FriendsPartyManager {
         val lObj = JSONObject()
         lObj.put("requestId", req.requestId)
         lObj.put("requesterId", req.requesterId)
-        lObj.put("requesterName", req.requesterName)
+        lObj.put("requesterName", req.requesterName.take(80))
         lObj.put("timestamp", req.timestamp)
         lObj.put("status", req.status.name)
         req.resolvedById?.let { lObj.put("resolvedById", it) }
@@ -1115,7 +1077,7 @@ object FriendsPartyManager {
             root.put("alerts", alertsArray)
 
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().putString(KEY_PARTY_STATE_JSON, root.toString()).commit()
+            prefs.edit().putString(KEY_PARTY_STATE_JSON, root.toString()).apply()
         } catch (e: Exception) {
             Log.e(TAG, "Error saving party to prefs: ${e.message}")
         }
@@ -1135,7 +1097,7 @@ object FriendsPartyManager {
                 val members = mutableListOf<PartyMember>()
                 val membersArray = root.optJSONArray("members")
                 if (membersArray != null) {
-                    for (i in 0 until membersArray.length()) {
+                    for (i in 0 until minOf(membersArray.length(), MAX_MEMBERS)) {
                         members.add(deserializePartyMember(membersArray.getJSONObject(i)))
                     }
                 }
@@ -1143,7 +1105,7 @@ object FriendsPartyManager {
                 val installRequests = mutableListOf<InstallApprovalRequest>()
                 val installArray = root.optJSONArray("pendingInstallRequests")
                 if (installArray != null) {
-                    for (i in 0 until installArray.length()) {
+                    for (i in 0 until minOf(installArray.length(), MAX_REQUESTS)) {
                         installRequests.add(deserializeInstallRequest(installArray.getJSONObject(i)))
                     }
                 }
@@ -1151,7 +1113,7 @@ object FriendsPartyManager {
                 val leaveRequests = mutableListOf<LeaveApprovalRequest>()
                 val leaveArray = root.optJSONArray("pendingLeaveRequests")
                 if (leaveArray != null) {
-                    for (i in 0 until leaveArray.length()) {
+                    for (i in 0 until minOf(leaveArray.length(), MAX_REQUESTS)) {
                         leaveRequests.add(deserializeLeaveRequest(leaveArray.getJSONObject(i)))
                     }
                 }
@@ -1159,7 +1121,7 @@ object FriendsPartyManager {
                 val alerts = mutableListOf<PartyAlert>()
                 val alertsArray = root.optJSONArray("alerts")
                 if (alertsArray != null) {
-                    for (i in 0 until alertsArray.length()) {
+                    for (i in 0 until minOf(alertsArray.length(), 20)) {
                         val aObj = alertsArray.getJSONObject(i)
                         alerts.add(
                             PartyAlert(
@@ -1199,7 +1161,7 @@ object FriendsPartyManager {
     private fun clearPartyPrefs(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().remove(KEY_PARTY_STATE_JSON).commit()
+            prefs.edit().remove(KEY_PARTY_STATE_JSON).apply()
         } catch (_: Exception) {}
     }
 }

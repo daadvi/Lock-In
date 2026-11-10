@@ -266,7 +266,7 @@ fun AppConfigDialog(
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Text(
-                                        text = "DESBLOQUEAR (5X SENHA + FRASE)",
+                                        text = "DESBLOQUEAR COM SENHA E FRASE",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = BlockyFontFamily

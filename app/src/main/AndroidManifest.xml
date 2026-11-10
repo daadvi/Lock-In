@@ -70,6 +70,7 @@
 
         <activity
             android:name=".UninstallProtectionActivity"
+            android:taskAffinity="com.example.uninstall_challenge"
             android:exported="false"
             android:launchMode="singleTask"
             android:excludeFromRecents="true"
@@ -117,6 +118,15 @@
         <receiver
             android:name=".service.DailyResetAlarmReceiver"
             android:exported="false" />
+
+        <receiver android:name=".service.FocusReminderReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- App Widgets -->
         <receiver
@@ -191,11 +201,14 @@
 
         <service
             android:name=".service.LockInVpnService"
+            android:foregroundServiceType="specialUse"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local DNS filtering through an authorized VPN" />
         </service>
 
     </application>

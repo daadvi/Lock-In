@@ -21,27 +21,20 @@ object DeviceAdminManager {
     private const val PREFS_ADMIN = "lock_in_device_admin_prefs"
     private const val KEY_UNINSTALL_AUTHORIZED = "key_uninstall_authorized"
 
-    @Volatile
-    var isUninstallAuthorized: Boolean = false
+    private const val KEY_AUTHORIZED_UNTIL = "authorized_until"
+    private const val AUTHORIZATION_DURATION_MS = 5 * 60_000L
 
     fun setUninstallAuthorized(context: Context, authorized: Boolean) {
-        isUninstallAuthorized = authorized
-        try {
-            context.getSharedPreferences(PREFS_ADMIN, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_UNINSTALL_AUTHORIZED, authorized)
-                .commit()
-        } catch (_: Exception) {}
+        context.getSharedPreferences(PREFS_ADMIN, Context.MODE_PRIVATE).edit()
+            .remove(KEY_UNINSTALL_AUTHORIZED) // Migrate the old, indefinite bypass.
+            .putLong(KEY_AUTHORIZED_UNTIL, if (authorized) System.currentTimeMillis() + AUTHORIZATION_DURATION_MS else 0L)
+            .apply()
     }
 
     fun isUninstallAuthorized(context: Context): Boolean {
-        if (isUninstallAuthorized) return true
-        return try {
-            context.getSharedPreferences(PREFS_ADMIN, Context.MODE_PRIVATE)
-                .getBoolean(KEY_UNINSTALL_AUTHORIZED, false)
-        } catch (_: Exception) {
-            false
-        }
+        val remaining = context.getSharedPreferences(PREFS_ADMIN, Context.MODE_PRIVATE)
+            .getLong(KEY_AUTHORIZED_UNTIL, 0L) - System.currentTimeMillis()
+        return remaining in 1..AUTHORIZATION_DURATION_MS
     }
 
     fun getAdminComponent(context: Context): ComponentName {
@@ -68,7 +61,7 @@ object DeviceAdminManager {
         return null
     }
 
-    fun requestDeviceAdmin(context: Context) {
+    fun requestDeviceAdmin(context: Context): Boolean {
         lastAdminRequestEpoch = System.currentTimeMillis()
         val adminComponent = getAdminComponent(context)
 
@@ -89,7 +82,7 @@ object DeviceAdminManager {
         if (activity != null) {
             try {
                 activity.startActivityForResult(intent, REQUEST_CODE_DEVICE_ADMIN)
-                return
+                return true
             } catch (e: Exception) {
                 Log.w("DeviceAdminManager", "Activity.startActivityForResult failed: ${e.message}")
             }
@@ -101,16 +94,16 @@ object DeviceAdminManager {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             context.startActivity(taskIntent)
-            return
+            return true
         } catch (e: Exception) {
             Log.w("DeviceAdminManager", "Context.startActivity with ACTION_ADD_DEVICE_ADMIN failed: ${e.message}")
         }
 
         // Attempt 3: Open Device Admin Settings list directly in System Settings
-        openDeviceAdminSettings(context)
+        return openDeviceAdminSettings(context)
     }
 
-    fun openDeviceAdminSettings(context: Context) {
+    fun openDeviceAdminSettings(context: Context): Boolean {
         lastAdminRequestEpoch = System.currentTimeMillis()
         val actions = listOf(
             "android.settings.DEVICE_ADMIN_SETTINGS",
@@ -130,11 +123,12 @@ object DeviceAdminManager {
                     "Encontre 'Lock in' e ative como Administrador do Dispositivo",
                     Toast.LENGTH_LONG
                 ).show()
-                return
+                return true
             } catch (_: Exception) {
                 // Try next
             }
         }
+        return false
     }
 
     fun deactivateDeviceAdmin(context: Context) {
@@ -145,20 +139,8 @@ object DeviceAdminManager {
         }
     }
 
-    fun triggerSystemUninstall(context: Context) {
-        // First ensure device admin is deactivated so system allows uninstall
-        deactivateDeviceAdmin(context)
-        setUninstallAuthorized(context, true)
-
-        try {
-            val uninstallIntent = Intent(Intent.ACTION_DELETE).apply {
-                data = Uri.parse("package:${context.packageName}")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-            context.startActivity(uninstallIntent)
-        } catch (e: Exception) {
-            Log.e("DeviceAdminManager", "Failed to launch ACTION_DELETE intent", e)
-        }
+    fun systemUninstallIntent(context: Context): Intent = Intent(Intent.ACTION_UNINSTALL_PACKAGE).apply {
+        data = Uri.parse("package:${context.packageName}")
+        putExtra(Intent.EXTRA_RETURN_RESULT, true)
     }
 }
-

@@ -11,7 +11,7 @@ class LockInScreenTimeWidget : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        LockInWidgetManager.updateScreenTimeWidgets(context, appWidgetManager, appWidgetIds)
+        LockInWidgetManager.updateAllWidgets(context)
     }
 
     override fun onEnabled(context: Context) {

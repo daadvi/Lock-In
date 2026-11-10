@@ -19,6 +19,24 @@ class LockInAccessibilityService : AccessibilityService() {
 
     private var screenReceiver: ScreenLockReceiver? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val scanBudget = NodeScanBudget()
+    private val uninstallOverlay by lazy { UninstallChallengeOverlay(this) }
+    private var uninstallActionClickedEpoch = 0L
+    private var pendingUninstallPackage: String? = null
+    private val pendingUninstallCheck = Runnable {
+        val pkg = pendingUninstallPackage ?: return@Runnable
+        pendingUninstallPackage = null
+        scanBudget.reset()
+        runCatching { checkUninstallAttempt(pkg, System.currentTimeMillis()) }
+    }
+    private fun isUninstallSurface(pkg: String): Boolean = pkg.contains("settings") || pkg.contains("installer") ||
+        pkg.contains("securitycenter") || pkg.contains("launcher") || pkg.contains("home") || pkg == "com.android.vending" || pkg == "android"
+
+    internal fun showUninstallChallenge(mode: String): Boolean {
+        if (DeviceAdminManager.isUninstallAuthorized(this)) return false
+        return uninstallOverlay.show(mode)
+    }
+
 
     // Debounce and caching state to guarantee zero main-thread ANR / freeze
     private var lastProcessedPackage: String? = null
@@ -63,6 +81,7 @@ class LockInAccessibilityService : AccessibilityService() {
     )
 
     private val pendingVideoStateRunnable = Runnable {
+        scanBudget.reset()
         var root: AccessibilityNodeInfo? = null
         try {
             root = rootInActiveWindow ?: return@Runnable
@@ -92,6 +111,7 @@ class LockInAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        scanBudget.reset()
         try {
             val eventType = event.eventType
 
@@ -107,8 +127,11 @@ class LockInAccessibilityService : AccessibilityService() {
             return
         }
 
-        val pkg = event.packageName?.toString() ?: return
-        if (pkg.isBlank() || pkg == packageName) return
+        val pkg = event.packageName?.toString() ?: if (eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            val root = rootInActiveWindow
+            try { root?.packageName?.toString() } finally { root?.recycle() }
+        } else null
+        if (pkg.isNullOrBlank() || pkg == packageName) return
 
         // CRITICAL BANKING & FINANCIAL SECURITY ISOLATION:
         // Banking apps (Caixa, Nubank, Itaú, Bradesco, Santander, Inter, etc.) scan for active
@@ -127,6 +150,19 @@ class LockInAccessibilityService : AccessibilityService() {
         DailyResetManager.checkResetIfDue(applicationContext)
 
         val now = System.currentTimeMillis()
+
+        if (isUninstallSurface(pkg)) {
+            if (isClick) {
+                val clickLabels = event.text.map { it.toString() } + listOfNotNull(event.contentDescription?.toString())
+                if (clickLabels.any { it.trim().lowercase(java.util.Locale.ROOT) in setOf("desinstalar", "uninstall", "desativar e desinstalar", "deactivate and uninstall") }) {
+                    uninstallActionClickedEpoch = now
+                }
+            }
+            if (checkUninstallAttempt(pkg, now)) return
+            pendingUninstallPackage = pkg
+            mainHandler.removeCallbacks(pendingUninstallCheck)
+            mainHandler.postDelayed(pendingUninstallCheck, 250L)
+        }
 
         // Debounce clicks slightly (200ms) to avoid double work, but NEVER debounce video platform clicks (Instagram, YouTube)
         val isVideoPlatform = pkg.contains("instagram") || pkg.contains("youtube") || pkg.contains("tiktok")
@@ -148,12 +184,6 @@ class LockInAccessibilityService : AccessibilityService() {
         if (isVideoApp) {
             mainHandler.removeCallbacks(pendingVideoStateRunnable)
             mainHandler.postDelayed(pendingVideoStateRunnable, 450L)
-        }
-
-        // 2.3 CRITICAL: Check for unauthorized uninstall attempts or Device Admin deactivation FIRST
-        // This ensures uninstallation attempts from the Launcher, Play Store, or Settings are intercepted immediately!
-        if (checkUninstallAttempt(pkg, now)) {
-            return
         }
 
         // 2.35 CRITICAL: If an uninstallation of ANY other application is occurring, ALLOW IT FREELY!
@@ -697,6 +727,7 @@ class LockInAccessibilityService : AccessibilityService() {
                 }
             }
             for (i in 0 until n.childCount) {
+                if (!scanBudget.tryAcquire()) break
                 val child = n.getChild(i) ?: continue
                 val clicked = try {
                     searchAndClick(child, depth + 1)
@@ -722,6 +753,7 @@ class LockInAccessibilityService : AccessibilityService() {
             n.text?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let { texts.add(it) }
             n.contentDescription?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let { texts.add(it) }
             for (i in 0 until n.childCount) {
+                if (!scanBudget.tryAcquire()) break
                 val child = n.getChild(i) ?: continue
                 try {
                     collect(child, depth + 1)
@@ -829,6 +861,7 @@ class LockInAccessibilityService : AccessibilityService() {
             }
 
             for (i in 0 until node.childCount) {
+                if (!scanBudget.tryAcquire()) break
                 val child = node.getChild(i) ?: continue
                 val shouldStop = try {
                     scanYouTube(child, depth + 1)
@@ -886,6 +919,7 @@ class LockInAccessibilityService : AccessibilityService() {
             }
 
             for (i in 0 until node.childCount) {
+                if (!scanBudget.tryAcquire()) break
                 val child = node.getChild(i) ?: continue
                 try {
                     inspectNode(child, depth + 1)
@@ -949,6 +983,7 @@ class LockInAccessibilityService : AccessibilityService() {
             }
 
             for (i in 0 until node.childCount) {
+                if (!scanBudget.tryAcquire()) break
                 val child = node.getChild(i) ?: continue
                 try {
                     checkNode(child, depth + 1)
@@ -997,6 +1032,7 @@ class LockInAccessibilityService : AccessibilityService() {
             }
 
             for (i in 0 until node.childCount) {
+                if (!scanBudget.tryAcquire()) break
                 val child = node.getChild(i) ?: continue
                 try {
                     check(child, depth + 1)
@@ -1030,6 +1066,7 @@ class LockInAccessibilityService : AccessibilityService() {
         }
 
         for (i in 0 until node.childCount) {
+            if (!scanBudget.tryAcquire()) break
             val child = node.getChild(i) ?: continue
             val match = try {
                 containsViewIdKeyword(child, keywords, maxDepth, currentDepth + 1, excludeIds)
@@ -1073,6 +1110,7 @@ class LockInAccessibilityService : AccessibilityService() {
         }
 
         for (i in 0 until node.childCount) {
+            if (!scanBudget.tryAcquire()) break
             val child = node.getChild(i) ?: continue
             val found = try {
                 findUrlTextInNode(child, depth + 1)
@@ -1139,6 +1177,7 @@ class LockInAccessibilityService : AccessibilityService() {
                     }
 
                     for (i in 0 until node.childCount) {
+                        if (!scanBudget.tryAcquire()) break
                         val child = node.getChild(i)
                         if (child != null) queue.add(child)
                     }
@@ -1179,7 +1218,7 @@ class LockInAccessibilityService : AccessibilityService() {
 
     private fun checkUninstallAttempt(pkg: String, now: Long): Boolean {
         // If uninstallation has been verified and authorized by user, NEVER intercept!
-        if (DeviceAdminManager.isUninstallAuthorized) {
+        if (DeviceAdminManager.isUninstallAuthorized(applicationContext)) {
             return false
         }
 
@@ -1188,28 +1227,15 @@ class LockInAccessibilityService : AccessibilityService() {
             return false
         }
 
-        // 1. Strictly target ONLY system package installers, device settings, and MIUI security manager
-        val isSettings = pkg == "com.android.settings" || pkg.contains("settings.intelligence") || pkg.contains("settings")
-        val isInstaller = pkg.contains("packageinstaller") || pkg.contains("installer")
-        val isXiaomiMiui = pkg.contains("com.miui.securitycenter") || pkg.contains("com.miui.packageinstaller")
+        val isSettings = pkg.contains("settings")
+        val isInstaller = pkg.contains("installer")
+        val isXiaomiMiui = pkg.contains("securitycenter")
+        val isLauncherDialog = !isSettings && !isInstaller && !isXiaomiMiui && isUninstallSurface(pkg)
+        if (!isSettings && !isInstaller && !isXiaomiMiui && !isLauncherDialog) return false
 
-        if (!isSettings && !isInstaller && !isXiaomiMiui) return false
-
-        // NEVER intercept if the package is a launcher / home screen (e.g. Nova, Pixel Launcher, MIUI Home)
-        if (pkg.contains("launcher") || pkg.contains("home") || pkg.contains("nexuslauncher") || pkg.contains("pixel") || pkg.contains("trebuchet")) {
-            return false
-        }
-
-        // If uninstallation of another app was explicitly initiated (e.g. from BlockedActivity uninstall button),
-        // NEVER intercept!
-        if (now - allowedUninstallTimestamp < 45_000L) {
-            if (!allowedUninstallPackage.isNullOrBlank() && !allowedUninstallPackage.equals(packageName, ignoreCase = true)) {
-                return false
-            }
-        }
-
+        // An earlier removal of another app must never suppress a new attempt against Lock In.
         if (now - lastUninstallInterceptEpoch < 1500L && pkg == lastUninstallInterceptPackage) return true
-        if (now - lastUninstallScanEpoch < 200L) return false
+        if (now - lastUninstallScanEpoch < 200L && now - uninstallActionClickedEpoch !in 0L..200L) return false
         lastUninstallScanEpoch = now
 
         val targetRoot: AccessibilityNodeInfo = if (isInstaller) {
@@ -1238,7 +1264,7 @@ class LockInAccessibilityService : AccessibilityService() {
                 !targetRootPkg.contains("packageinstaller") &&
                 !targetRootPkg.contains("installer") &&
                 !targetRootPkg.contains("settings") &&
-                !targetRootPkg.contains("securitycenter")) {
+                !targetRootPkg.contains("securitycenter") && !isLauncherDialog) {
                 return false
             }
 
@@ -1266,13 +1292,18 @@ class LockInAccessibilityService : AccessibilityService() {
             )
 
             // CASE 1: PackageInstaller confirmation dialog (e.g. from Launcher, Play Store, or App prompt)
-            if (isInstaller) {
+            if (isInstaller || isLauncherDialog) {
                 val hasUninstallQuestion = texts.any {
                     it.contains("deseja desinstalar") || it.contains("uninstall this app") ||
                             it.contains("want to uninstall") || it.contains("desinstalar este app") ||
-                            it.contains("desinstalar o app") || it == "desinstalar" || it == "uninstall"
+                            it.contains("desinstalar o app") || it == "desinstalar" || it == "uninstall" ||
+                            ((it.contains("desinstalar") || it.contains("uninstall")) && it.contains("?"))
                 }
                 if (!hasUninstallQuestion) return false
+                // A home screen/long-press menu can contain many app labels. Require an actual
+                // removal question rather than matching its generic "Uninstall" shortcut.
+                if (isLauncherDialog && texts.none { (it.contains("desinstalar") || it.contains("uninstall")) &&
+                    (it.contains("?") || it.contains("deseja") || it.contains("want to") || it.contains("removido") || it.contains("removed")) }) return false
 
                 // Check if there is an explicit app title in the dialog
                 val alertTitleNodes = targetRoot.findAccessibilityNodeInfosByViewId("android:id/alertTitle")
@@ -1332,6 +1363,7 @@ class LockInAccessibilityService : AccessibilityService() {
             if (isSettings || isXiaomiMiui) {
                 // Subcase 2.1: Device Admin Deactivation attempt
                 val isDeviceAdminDeactivation = texts.any {
+                    it.contains("desativar e desinstalar") || it.contains("deactivate and uninstall") ||
                     it.contains("desativar este app de administração") ||
                             it.contains("desativar administrador") ||
                             it.contains("deactivate this device admin") ||
@@ -1348,7 +1380,10 @@ class LockInAccessibilityService : AccessibilityService() {
                         it.contains("lock in") || it.contains("lockin") || it.contains(adminLabel) || it.contains(appLabel) || it.contains(myPkgLower)
                     }
                     if (isAdminLockIn) {
-                        return interceptUninstall(pkg, now, challengeMode = com.example.UninstallProtectionActivity.MODE_DEACTIVATE_ADMIN)
+                        val removingApp = texts.any { it.contains("desinstalar") || it.contains("uninstall") }
+                        return interceptUninstall(pkg, now, challengeMode = if (removingApp)
+                            com.example.UninstallProtectionActivity.MODE_UNINSTALL_APP else
+                            com.example.UninstallProtectionActivity.MODE_DEACTIVATE_ADMIN)
                     }
                     return false
                 }
@@ -1395,7 +1430,9 @@ class LockInAccessibilityService : AccessibilityService() {
                 val hasSpecificLockIn = texts.any { t ->
                     t == appLabel || t == "lock in" || t == "lockin" || t == myPkgLower
                 }
-                if (hasSpecificLockIn) {
+                val isRemovalConfirmation = texts.any { it.contains("deseja desinstalar") || it.contains("want to uninstall") ||
+                    it.contains("desinstalar") && it.contains("?") || it.contains("uninstall") && it.contains("?") }
+                if (hasSpecificLockIn && (isRemovalConfirmation || now - uninstallActionClickedEpoch in 0L..1500L)) {
                     return interceptUninstall(pkg, now)
                 }
             }
@@ -1414,15 +1451,19 @@ class LockInAccessibilityService : AccessibilityService() {
         Log.w("LockInAccessibility", "INTERCEPTED UNINSTALL / DEACTIVATION ATTEMPT SPECIFICALLY FOR LOCK IN (pkg: $pkg, mode: $challengeMode)")
         lastUninstallInterceptEpoch = now
         lastUninstallInterceptPackage = pkg
-        performGlobalAction(GLOBAL_ACTION_HOME)
-        val intent = Intent(applicationContext, com.example.UninstallProtectionActivity::class.java).apply {
+        mainHandler.removeCallbacks(pendingUninstallCheck)
+        pendingUninstallPackage = null
+        if (showUninstallChallenge(challengeMode)) return true
+        // Keep the originating window in place until the challenge is foreground.
+        // HOME races the launch and can hide the challenge behind the launcher.
+        val intent = Intent(this, com.example.UninstallProtectionActivity::class.java).apply {
             putExtra(com.example.UninstallProtectionActivity.EXTRA_CHALLENGE_MODE, challengeMode)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_CLEAR_TOP or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP or
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
         }
-        XiaomiCompatibilityHelper.safelyStartActivity(applicationContext, intent)
+        XiaomiCompatibilityHelper.safelyStartActivity(this, intent)
         return true
     }
 
@@ -1456,6 +1497,7 @@ class LockInAccessibilityService : AccessibilityService() {
         if (!cd.isNullOrEmpty()) texts.add(cd.lowercase())
 
         for (i in 0 until node.childCount) {
+            if (!scanBudget.tryAcquire()) break
             val child = node.getChild(i) ?: continue
             try {
                 collectWindowTexts(child, texts, depth + 1)
@@ -1466,6 +1508,7 @@ class LockInAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        uninstallOverlay.dismiss()
         Log.d("LockInAccessibility", "Service interrupted")
     }
 
@@ -1521,6 +1564,8 @@ class LockInAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        uninstallOverlay.dismiss()
+        mainHandler.removeCallbacks(pendingUninstallCheck)
         if (instance == this) {
             instance = null
         }
@@ -1561,21 +1606,11 @@ class LockInAccessibilityService : AccessibilityService() {
         }
 
         /**
-         * Closes the target app's window and removes it from active tasks without sending
+         * Dismisses the target app's active window without sending
          * the device to the launcher Home screen (which would minimize BlockedActivity).
          */
         fun closeAndDismissApp(context: Context, targetPackage: String? = null) {
-            // 1. Kill background processes for the target app so it is removed from active processes and recents
-            if (!targetPackage.isNullOrBlank()) {
-                try {
-                    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
-                    am?.killBackgroundProcesses(targetPackage)
-                } catch (e: Exception) {
-                    Log.w("LockInAccessibility", "Error killing background processes for $targetPackage", e)
-                }
-            }
-
-            // 2. If the blocked app is currently the active window, send GLOBAL_ACTION_BACK to dismiss its activity stack
+            // Dismiss the active window through the user-enabled accessibility service.
             instance?.let { service ->
                 var activeRoot: AccessibilityNodeInfo? = null
                 try {

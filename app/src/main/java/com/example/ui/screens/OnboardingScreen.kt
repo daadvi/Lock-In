@@ -1,4 +1,6 @@
 package com.example.ui.screens
+import com.example.ui.tutorial.tutorialTarget
+import com.example.ui.tutorial.LocalTutorialController
 import com.example.ui.theme.BlockyFontFamily
 import com.example.util.PasswordValidator
 import com.example.ui.components.AccountSyncDialog
@@ -23,12 +25,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
 
-import android.app.AppOpsManager
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.os.Process
 import android.provider.Settings
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -38,6 +34,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,7 +57,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
@@ -81,7 +79,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,9 +88,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -102,12 +97,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import com.example.service.FloatingIslandService
 import com.example.ui.components.DotMatrixPattern
 import com.example.ui.components.NothingCard
-import com.example.ui.components.XiaomiCompatibilityCard
 import com.example.ui.components.cmfTextFieldColors
 
 import com.example.ui.theme.CmfBorder
@@ -129,60 +121,29 @@ fun OnboardingScreen(
 ) {
     val accentColor = LocalCustomTextColor.current
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val onboardingState: OnboardingState = androidx.lifecycle.viewmodel.compose.viewModel()
+    var currentStep by onboardingState.step
+    var registeredName by onboardingState.name
+    var registeredPassword by onboardingState.password
+    var selectedLockLevel by onboardingState.lockLevel
+    val tutorial = LocalTutorialController.current
+    val tutorialPreferences = remember(context) { context.getSharedPreferences("lock_in_tutorial", 0) }
 
-    var currentStep by remember { mutableStateOf(OnboardingStep.EMAIL_AUTH) }
-
-    // Registration states established in Email Auth step
-    var registeredName by remember { mutableStateOf("") }
-    var registeredPassword by remember { mutableStateOf("") }
-    var selectedLockLevel by remember { mutableStateOf(com.example.data.model.LockLevel.DETERMINED) }
-
-    // Permissions states
-    var hasOverlayPermission by remember { mutableStateOf(false) }
-    var hasUsageStatsPermission by remember { mutableStateOf(false) }
-    var hasLockScreenPermission by remember { mutableStateOf(false) }
-    var hasDeviceAdminPermission by remember { mutableStateOf(false) }
-
-    fun checkPermissions() {
-        hasOverlayPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Settings.canDrawOverlays(context)
-        } else true
-
-        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            appOps.unsafeCheckOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            appOps.checkOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName
-            )
-        }
-        hasUsageStatsPermission = mode == AppOpsManager.MODE_ALLOWED
-        hasLockScreenPermission = com.example.service.LockScreenPermissionHelper.hasLockScreenPermission(context)
-        hasDeviceAdminPermission = com.example.service.DeviceAdminManager.isDeviceAdminActive(context)
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                checkPermissions()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
+    // The first-use guide begins on its own unless the person explicitly hid it.
+    LaunchedEffect(tutorial) {
+        if (tutorial != null && tutorial.chapter == null &&
+            !tutorialPreferences.getBoolean("completed", false) &&
+            !tutorialPreferences.getBoolean("hidden", false)
+        ) {
+            tutorial.start(chapter = 0, guided = true)
         }
     }
+    LaunchedEffect(currentStep, tutorial) {
+        if (currentStep != OnboardingStep.EMAIL_AUTH) tutorial?.markCredentialsComplete()
+    }
 
-    LaunchedEffect(Unit) {
-        checkPermissions()
+    androidx.activity.compose.BackHandler(enabled = currentStep != OnboardingStep.EMAIL_AUTH) {
+        currentStep = if (currentStep == OnboardingStep.LOCK_LEVEL) OnboardingStep.PERMISSIONS else OnboardingStep.EMAIL_AUTH
     }
 
     Surface(
@@ -212,6 +173,8 @@ fun OnboardingScreen(
                     }
                 )
 
+                com.example.ui.tutorial.TutorialEntry(guidedOnboarding = true)
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 AnimatedContent(
@@ -227,7 +190,11 @@ fun OnboardingScreen(
                             )
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).tutorialTarget(when (currentStep) {
+                        OnboardingStep.PERMISSIONS -> "onboarding_permissions_content"
+                        OnboardingStep.LOCK_LEVEL -> "levels"
+                        else -> "onboarding_content"
+                    }),
                     label = "onboarding_step_content"
                 ) { step ->
                     when (step) {
@@ -242,13 +209,12 @@ fun OnboardingScreen(
                             )
                         }
                         OnboardingStep.PERMISSIONS -> {
-                            PermissionsStepContent(
-                                accentColor = accentColor,
-                                hasOverlay = hasOverlayPermission,
-                                hasUsageStats = hasUsageStatsPermission,
-                                hasLockScreen = hasLockScreenPermission,
-                                hasDeviceAdmin = hasDeviceAdminPermission,
-                                onNext = {
+                            com.example.ui.components.PermissionSetup(
+                                requireEssentialPermissions = tutorial?.guidedOnboarding == true && tutorial.visible,
+                                onPermissionsChanged = { snapshot ->
+                                    tutorial?.updateEssentialPermissions(snapshot.missingEssential.isEmpty())
+                                },
+                                onContinue = {
                                     currentStep = OnboardingStep.LOCK_LEVEL
                                 }
                             )
@@ -260,13 +226,15 @@ fun OnboardingScreen(
                                 onSelectLevel = { selectedLockLevel = it },
                                 onConfirm = {
                                     com.example.LockInApplication.instance.userPreferences.setLockLevel(selectedLockLevel)
-                                    if (hasOverlayPermission) {
+                                    if (Settings.canDrawOverlays(context)) {
                                         com.example.service.FloatingIslandService.showIsland(context)
                                     }
+                                    tutorial?.markLockLevelComplete()
                                     onCompleteRegistration(
                                         registeredName.trim().ifBlank { "Foco" },
                                         registeredPassword
                                     )
+                                    registeredPassword = ""
                                 }
                             )
                         }
@@ -283,68 +251,39 @@ private fun StepProgressHeader(
     accentColor: Color,
     onBackClick: () -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        if (currentStep != OnboardingStep.EMAIL_AUTH) {
-            IconButton(
-                onClick = onBackClick,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "Voltar",
-                    tint = CmfDark,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        } else {
-            Spacer(modifier = Modifier.size(36.dp))
-        }
-
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            listOf(
-                OnboardingStep.EMAIL_AUTH to "1. LOGIN",
-                OnboardingStep.PERMISSIONS to "2. PERMISSÕES",
-                OnboardingStep.LOCK_LEVEL to "3. NÍVEL DE LOCK"
-            ).forEach { (step, label) ->
-                val isActive = currentStep == step
-                val isDone = currentStep.ordinal > step.ordinal
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(
-                            when {
-                                isActive -> accentColor
-                                isDone -> Color(0xFF18181B)
-                                else -> CmfLightGray
-                            }
-                        )
-                        .padding(horizontal = 7.dp, vertical = 5.dp)
-                ) {
-                    Text(
-                        text = label,
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = BlockyFontFamily,
-                        color = if (isActive || isDone) Color.White else CmfMutedText
-                    )
+    Column(Modifier.tutorialTarget("overview"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (currentStep != OnboardingStep.EMAIL_AUTH) {
+                IconButton(onClick = onBackClick) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar para a etapa anterior",
+                        tint = MaterialTheme.colorScheme.onSurface)
                 }
             }
+            Column(Modifier.weight(1f)) {
+                Text("Etapa ${currentStep.ordinal + 1} de 3", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    when (currentStep) {
+                        OnboardingStep.EMAIL_AUTH -> "Sua conta"
+                        OnboardingStep.PERMISSIONS -> "Permissões"
+                        OnboardingStep.LOCK_LEVEL -> "Nível de bloqueio"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
-
-        Spacer(modifier = Modifier.size(36.dp))
+        androidx.compose.material3.LinearProgressIndicator(
+            progress = { (currentStep.ordinal + 1) / 3f },
+            modifier = Modifier.fillMaxWidth(),
+            color = accentColor
+        )
     }
 }
 
 @Composable
-private fun LockLevelStepContent(
+internal fun LockLevelStepContent(
     accentColor: Color,
     selectedLevel: com.example.data.model.LockLevel,
     onSelectLevel: (com.example.data.model.LockLevel) -> Unit,
@@ -361,28 +300,30 @@ private fun LockLevelStepContent(
             fontSize = 17.sp,
             fontWeight = FontWeight.Black,
             fontFamily = BlockyFontFamily,
-            color = CmfDark
+            color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-            text = "Depois de colocar as permissões, escolha a intensidade de bloqueio do Lock In para os seus aplicativos:",
+            text = "Escolha a intensidade de bloqueio do Lock In. A quantidade de repetições da senha também vale para desbloquear o dispositivo, desinstalar o Lock In e desativar suas proteções:",
             fontSize = 12.sp,
-            color = CmfMutedText,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 16.sp
         )
 
         com.example.data.model.LockLevel.entries.forEach { level ->
             val isSelected = level == selectedLevel
+            val palette = com.example.ui.theme.lockLevelColors(level)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (isSelected) accentColor.copy(alpha = 0.08f) else Color(0xFFF9F9FB))
+                    .background(palette.background(isSelected))
                     .border(
                         width = if (isSelected) 2.dp else 1.dp,
-                        color = if (isSelected) accentColor else CmfBorder,
+                        color = palette.accent.copy(alpha = if (isSelected) 1f else .45f),
                         shape = RoundedCornerShape(12.dp)
                     )
-                    .clickable { onSelectLevel(level) }
+                    .selectable(selected = isSelected, role = Role.RadioButton) { onSelectLevel(level) }
+                    .testTag("lock_level_${level.id}")
                     .padding(14.dp)
             ) {
                 Column {
@@ -391,19 +332,19 @@ private fun LockLevelStepContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .clip(CircleShape)
-                                    .background(if (isSelected) accentColor else Color(0xFF18181B)),
+                                    .background(palette.accent.copy(alpha = .18f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = "${level.levelNumber}",
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = Color.White,
+                                    color = palette.accent,
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
@@ -413,7 +354,7 @@ private fun LockLevelStepContent(
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = BlockyFontFamily,
-                                color = CmfDark
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
 
@@ -421,7 +362,7 @@ private fun LockLevelStepContent(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(accentColor)
+                                    .background(palette.accent.copy(alpha = .18f))
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
                                 Text(
@@ -429,7 +370,7 @@ private fun LockLevelStepContent(
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Black,
                                     fontFamily = FontFamily.Monospace,
-                                    color = Color.White
+                                    color = palette.accent
                                 )
                             }
                         }
@@ -440,7 +381,7 @@ private fun LockLevelStepContent(
                     Text(
                         text = level.description,
                         fontSize = 11.sp,
-                        color = CmfDark,
+                        color = MaterialTheme.colorScheme.onSurface,
                         lineHeight = 16.sp
                     )
 
@@ -454,14 +395,14 @@ private fun LockLevelStepContent(
                             text = "• Desbloqueios: ${level.maxDailyUnlocksPerApp}x/dia",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = CmfDark,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontFamily = FontFamily.Monospace
                         )
                         Text(
                             text = "• Repetições de senha: ${level.passwordRepeatCount}x",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = accentColor,
+                            color = palette.accent,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -525,7 +466,9 @@ private fun EmailAuthStepContent(
 
     LaunchedEffect(email) {
         val trimmed = email.trim().lowercase()
-        hasBackupFound = trimmed.contains("@") && trimmed.contains(".") && CloudSyncManager.hasCloudBackup(context, trimmed)
+        hasBackupFound = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            trimmed.contains("@") && trimmed.contains(".") && CloudSyncManager.hasCloudBackup(context, trimmed)
+        }
     }
 
     Column(
@@ -687,7 +630,7 @@ private fun EmailAuthStepContent(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("email_auth_email_input"),
+                    .testTag("email_auth_email_input").tutorialTarget("account"),
                 shape = RoundedCornerShape(10.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 colors = cmfTextFieldColors(accentColor = accentColor)
@@ -978,7 +921,7 @@ private fun EmailAuthStepContent(
                                 if (loginResult.isSuccess) {
                                     val profile = loginResult.getOrNull()
                                     var finalName = profile?.displayName?.ifBlank { cleanEmail.substringBefore("@") } ?: "Foco"
-                                    var finalPassword = password
+                                    val finalPassword = password
 
                                     if (autoRestoreBackup && CloudSyncManager.hasCloudBackup(context, cleanEmail)) {
                                         try {
@@ -990,8 +933,6 @@ private fun EmailAuthStepContent(
                                                 val app = context.applicationContext as? LockInApplication ?: LockInApplication.instance
                                                 val restoredName = app.userPreferences.userName.value
                                                 if (restoredName.isNotBlank()) finalName = restoredName
-                                                val restoredPass = app.userPreferences.getTrustPassword()
-                                                if (restoredPass.isNotBlank()) finalPassword = restoredPass
                                             }
                                         } catch (_: Exception) {}
                                     }
@@ -1299,321 +1240,6 @@ private fun EmailAuthStepContent(
                                 color = Color.White
                             )
                         }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PermissionsStepContent(
-    accentColor: Color,
-    hasOverlay: Boolean,
-    hasUsageStats: Boolean,
-    hasLockScreen: Boolean,
-    hasDeviceAdmin: Boolean,
-    onNext: () -> Unit
-) {
-    val context = LocalContext.current
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column {
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = "PERMISSÕES NECESSÁRIAS",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
-                fontFamily = BlockyFontFamily,
-                color = CmfDark,
-                letterSpacing = 0.5.sp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = "Para que o cronômetro, a ilha flutuante, a tela de bloqueio e a proteção contra desinstalação funcionem com total segurança, o Android requer as seguintes autorizações:",
-                fontSize = 12.sp,
-                color = CmfMutedText,
-                lineHeight = 17.sp
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Xiaomi / Redmi System Optimizations Card
-            XiaomiCompatibilityCard(
-                accentColor = accentColor,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // 1. Device Administrator Anti-Uninstall Protection (FIRST & CRITICAL)
-            OnboardingPermissionItem(
-                title = "Proteção Contra Desinstalação (Administrador)",
-                desc = "Impede que o Lock In seja desinstalado sem passar pelo protocolo estrito de segurança (5 senhas consecutivas e frase manual).",
-                icon = Icons.Default.Shield,
-                isGranted = hasDeviceAdmin,
-                accentColor = accentColor,
-                buttonText = if (hasDeviceAdmin) "Blindagem Ativa (Autorizado)" else "Ativar Administrador do Dispositivo",
-                onClick = {
-                    com.example.service.DeviceAdminManager.requestDeviceAdmin(context)
-                },
-                secondaryButtonText = if (!hasDeviceAdmin) "Configurações" else null,
-                onSecondaryClick = {
-                    com.example.service.DeviceAdminManager.openDeviceAdminSettings(context)
-                }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // 2. Overlay / Floating Island
-            OnboardingPermissionItem(
-                title = "Sobrepor a Outros Apps (Ilha Flutuante)",
-                desc = "Exibe a cápsula do cronômetro enquanto você navega e a tela de bloqueio quando o limite zerar.",
-                icon = Icons.Default.Layers,
-                isGranted = hasOverlay,
-                accentColor = accentColor,
-                buttonText = if (hasOverlay) "Autorizado" else "Conceder Sobreposição",
-                onClick = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        try {
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}")
-                            )
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
-                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
-                            context.startActivity(intent)
-                        }
-                    }
-                }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // 3. Usage Stats
-            OnboardingPermissionItem(
-                title = "Acesso aos Dados de Uso",
-                desc = "Permite identificar em tempo real o app em execução para subtrair segundos do seu limite.",
-                icon = Icons.Default.QueryStats,
-                isGranted = hasUsageStats,
-                accentColor = accentColor,
-                buttonText = if (hasUsageStats) "Autorizado" else "Conceder Acesso a Dados",
-                onClick = {
-                    try {
-                        val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                        context.startActivity(intent)
-                    } catch (_: Exception) {}
-                }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // 4. Accessibility (For Reels & Shorts detection)
-            OnboardingPermissionItem(
-                title = "Serviço de Acessibilidade (Reels/Shorts & Play Store)",
-                desc = "Detecta vídeos curtos vs longos, Picture-in-Picture e bloqueia instalações na Play Store em tempo real.\n\nInstruções: Configurações > Acessibilidade > Apps Instalados > Ativar 'Lock In'.",
-                icon = Icons.Default.Accessibility,
-                isGranted = false,
-                accentColor = accentColor,
-                buttonText = "Configurar Acessibilidade",
-                onClick = {
-                    try {
-                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        context.startActivity(intent)
-                    } catch (_: Exception) {}
-                }
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // 5. Lock Screen Appearance
-            OnboardingPermissionItem(
-                title = "Aparecer na Tela de Bloqueio",
-                desc = "Permite que a tela de bloqueio consciente seja exibida imediatamente mesmo se o aparelho estiver bloqueado.",
-                icon = Icons.Default.Lock,
-                isGranted = hasLockScreen,
-                accentColor = accentColor,
-                buttonText = if (hasLockScreen) "Autorizado" else "Permitir na Tela de Bloqueio",
-                onClick = {
-                    com.example.service.LockScreenPermissionHelper.requestLockScreenPermission(context)
-                }
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // Action Button
-        Button(
-            onClick = onNext,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .testTag("onboarding_permissions_next_button"),
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = CmfDark)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "CONCLUIR E INICIAR LOCK IN",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = BlockyFontFamily,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun OnboardingPermissionItem(
-    title: String,
-    desc: String,
-    icon: ImageVector,
-    isGranted: Boolean,
-    accentColor: Color,
-    buttonText: String,
-    onClick: () -> Unit,
-    secondaryButtonText: String? = null,
-    onSecondaryClick: (() -> Unit)? = null
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(CmfWhite)
-            .border(
-                1.dp,
-                if (isGranted) Color(0xFF00C853).copy(alpha = 0.4f) else CmfBorder,
-                RoundedCornerShape(12.dp)
-            )
-            .padding(14.dp)
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = if (isGranted) Color(0xFF00C853) else accentColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = title,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = BlockyFontFamily,
-                        color = CmfDark
-                    )
-                }
-
-                if (isGranted) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xFFE8F5E9))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "ATIVO",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = BlockyFontFamily,
-                            color = Color(0xFF00C853)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = desc,
-                fontSize = 11.sp,
-                color = CmfMutedText,
-                lineHeight = 15.sp
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isGranted) Color(0xFFF3F3F5) else Color(0xFF18181B))
-                        .border(
-                            1.dp,
-                            if (isGranted) CmfBorder else Color.Black,
-                            RoundedCornerShape(6.dp)
-                        )
-                        .clickable { onClick() }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (isGranted) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color(0xFF00C853),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                        Text(
-                            text = buttonText,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = BlockyFontFamily,
-                            color = if (isGranted) CmfDark else Color.White
-                        )
-                    }
-                }
-
-                if (secondaryButtonText != null && onSecondaryClick != null && !isGranted) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFF4F4F5))
-                            .border(1.dp, CmfBorder, RoundedCornerShape(6.dp))
-                            .clickable { onSecondaryClick() }
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = secondaryButtonText,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Monospace,
-                            color = CmfDark
-                        )
                     }
                 }
             }

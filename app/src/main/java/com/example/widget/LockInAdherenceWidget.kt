@@ -11,7 +11,7 @@ class LockInAdherenceWidget : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        LockInWidgetManager.updateAdherenceWidgets(context, appWidgetManager, appWidgetIds)
+        LockInWidgetManager.updateAllWidgets(context)
     }
 
     override fun onEnabled(context: Context) {

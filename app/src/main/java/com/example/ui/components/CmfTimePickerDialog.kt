@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.ui.theme.BlockyFontFamily
-import com.example.ui.theme.CmfMutedText
 import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -147,7 +146,7 @@ fun CmfTimePickerDialog(
                                 text = "HORA",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = CmfMutedText
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -194,7 +193,7 @@ fun CmfTimePickerDialog(
                                 text = "MIN",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = CmfMutedText
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }

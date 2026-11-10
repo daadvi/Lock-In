@@ -34,7 +34,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
+import com.example.util.EmptyTextToolbar
+import com.example.util.isManualTyping
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,8 +51,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalTextToolbar
-import androidx.compose.ui.platform.TextToolbar
-import androidx.compose.ui.platform.TextToolbarStatus
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -77,19 +76,6 @@ enum class HighFrictionChallengeType {
     DEACTIVATE_DEVICE_ADMIN
 }
 
-// Custom Empty TextToolbar to completely disable copy/paste context floating menu
-private val EmptyTextToolbar = object : TextToolbar {
-    override val status: TextToolbarStatus get() = TextToolbarStatus.Hidden
-    override fun hide() {}
-    override fun showMenu(
-        rect: androidx.compose.ui.geometry.Rect,
-        onCopyRequested: (() -> Unit)?,
-        onPasteRequested: (() -> Unit)?,
-        onCutRequested: (() -> Unit)?,
-        onSelectAllRequested: (() -> Unit)?
-    ) {}
-}
-
 @Composable
 fun HighFrictionSecurityChallengeFlow(
     challengeType: HighFrictionChallengeType,
@@ -104,7 +90,7 @@ fun HighFrictionSecurityChallengeFlow(
     var successfulPassCount by remember { mutableIntStateOf(0) }
 
     // Stage tracking:
-    // Stage 1: 5 passwords without error (successfulPassCount reaches 5)
+    // Stage 1: Consecutive correct passwords according to the saved lock level
     // Stage 2: Write stage 2 phrase without error
     // Stage 3: Reflection cards appear
     // Stage 4: Write stage 4 alternating commitment phrase without error
@@ -124,13 +110,7 @@ fun HighFrictionSecurityChallengeFlow(
         }
     }
 
-    val targetPassCount = remember(challengeType, currentLockLevel) {
-        if (challengeType == HighFrictionChallengeType.UNBLOCK_INSTALLATION) {
-            currentLockLevel.passwordRepeatCount
-        } else {
-            5
-        }
-    }
+    val targetPassCount = currentLockLevel.passwordRepeatCount
 
     // Alternating final phrases for Stage 4
     val finalPhrases = remember(challengeType) {
@@ -359,7 +339,9 @@ fun HighFrictionSecurityChallengeFlow(
                                         color = textColor
                                     )
                                     Text(
-                                        text = "1. Digitar a senha 5 vezes sem errar.\n2. Escrever a frase sem errar (qualquer erro zera tudo).\n3. Refletir sobre as frases de propósito.\n4. Digitar a frase final de compromisso.",
+                                        text = "1. Digitar a senha $targetPassCount vez${if (targetPassCount > 1) "es" else ""} sem errar.\n2. Escrever a frase sem errar (qualquer erro zera tudo)." +
+                                            if (challengeType == HighFrictionChallengeType.UNBLOCK_INSTALLATION) "" else
+                                                "\n3. Refletir sobre as frases de propósito.\n4. Digitar a frase final de compromisso.",
                                         fontSize = 10.sp,
                                         color = subtextColor,
                                         lineHeight = 14.sp
@@ -424,7 +406,7 @@ fun HighFrictionSecurityChallengeFlow(
                     }
 
                     // ==========================================
-                    // ETAPA 1: SENHA DE SEGURANÇA (5 VEZES)
+                    // ETAPA 1: SENHA DE SEGURANÇA CONFORME O NÍVEL
                     // ==========================================
                     Text(
                         text = "ETAPA 1: DIGITAR A SENHA ($targetPassCount VEZ${if (targetPassCount > 1) "ES" else ""} SEM ERRAR)",
@@ -485,10 +467,10 @@ fun HighFrictionSecurityChallengeFlow(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
 
-                        OutlinedTextField(
+                        ManualEntryTextField(
                             value = passwordInput,
                             onValueChange = { newVal ->
-                                if (newVal.length > passwordInput.length + 1) {
+                                if (!isManualTyping(passwordInput, newVal)) {
                                     pasteWarning = "Tentativa de colar detectada! Digite caractere por caractere."
                                 } else {
                                     pasteWarning = null
@@ -577,7 +559,7 @@ fun HighFrictionSecurityChallengeFlow(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Se errar qualquer letra, todo o processo reiniciará desde as 5 senhas:",
+                        text = "Se errar qualquer letra, todo o processo reiniciará desde a etapa da senha:",
                         fontSize = 10.sp,
                         color = subtextColor
                     )
@@ -593,6 +575,7 @@ fun HighFrictionSecurityChallengeFlow(
                     ) {
                         Text(
                             text = "'$requiredStage2Phrase'",
+                            modifier = Modifier.testTag("stage2_phrase_target"),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace,
@@ -602,10 +585,10 @@ fun HighFrictionSecurityChallengeFlow(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    OutlinedTextField(
+                    ManualEntryTextField(
                         value = stage2Input,
                         onValueChange = { newVal ->
-                            if (newVal.length > stage2Input.length + 1) {
+                            if (!isManualTyping(stage2Input, newVal)) {
                                 pasteWarning = "Colar não é permitido! Digite a frase caractere por caractere."
                             } else {
                                 pasteWarning = null
@@ -722,7 +705,7 @@ fun HighFrictionSecurityChallengeFlow(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Digite exatamente esta declaração manual para concluir a autorização:",
+                            text = "Digite esta declaração manualmente. Maiúsculas e minúsculas são aceitas:",
                             fontSize = 10.sp,
                             color = subtextColor
                         )
@@ -743,17 +726,17 @@ fun HighFrictionSecurityChallengeFlow(
                                 fontFamily = FontFamily.Monospace,
                                 color = Color(0xFFE65100),
                                 textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().testTag("stage4_phrase_target"),
                                 lineHeight = 16.sp
                             )
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        OutlinedTextField(
+                        ManualEntryTextField(
                             value = stage4Input,
                             onValueChange = { newVal ->
-                                if (newVal.length > stage4Input.length + 1) {
+                                if (!isManualTyping(stage4Input, newVal)) {
                                     pasteWarning = "Colar não é permitido! Digite a declaração caractere por caractere."
                                 } else {
                                     pasteWarning = null

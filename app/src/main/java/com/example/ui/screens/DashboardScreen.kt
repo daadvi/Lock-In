@@ -70,7 +70,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import com.example.ui.components.cmfTextFieldColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -172,12 +172,12 @@ fun DashboardScreen(
     var showAccountSyncDialog by remember { mutableStateOf(false) }
     var showPlayStoreBlacklistDialog by remember { mutableStateOf(false) }
 
-    val blacklistedAppsList by PlayStoreBlacklistManager.blacklistedApps.collectAsState()
-    val isBlacklistActive by PlayStoreBlacklistManager.isBlacklistEnabled.collectAsState()
+    val blacklistedAppsList by PlayStoreBlacklistManager.blacklistedApps.collectAsStateWithLifecycle()
+    val isBlacklistActive by PlayStoreBlacklistManager.isBlacklistEnabled.collectAsStateWithLifecycle()
 
-    val currentAccount by CloudSyncManager.currentAccount.collectAsState()
+    val currentAccount by CloudSyncManager.currentAccount.collectAsStateWithLifecycle()
 
-    val streakJustIncreased by StreakManager.streakJustIncreased.collectAsState()
+    val streakJustIncreased by StreakManager.streakJustIncreased.collectAsStateWithLifecycle()
     val currentStreak = remember(context, streakJustIncreased) { StreakManager.getStreak(context) }
 
     val resetIntervalLabel = if (screenTimeResetHours == 24) "1 dia (24h)" else "${screenTimeResetHours} horas"
@@ -705,7 +705,7 @@ fun DashboardScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             // Websites
-                            val isVpnRunning by LockInVpnManager.isVpnRunning.collectAsState()
+                            val isVpnRunning by LockInVpnManager.isVpnRunning.collectAsStateWithLifecycle()
                             BentoSmallTile(
                                 modifier = Modifier.weight(1f),
                                 label = "SITES WEB",
@@ -1255,6 +1255,9 @@ fun AppSecurityUnlockDialog(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val isDark = LocalIsDarkTheme.current
+    val currentLockLevel by com.example.LockInApplication.instance.userPreferences.lockLevel.collectAsStateWithLifecycle()
+    val passwordRepeats = currentLockLevel.passwordRepeatCount
+    val maxDailyUnlocks = currentLockLevel.maxDailyUnlocksPerApp
     val isAlreadyUnlockedToday = com.example.service.AppUnlockDailyTracker.isAppUnlockedToday(context, app.packageName)
     val dialogBg = if (isDark) Color(0xFF18181B) else CmfWhite
     val dialogBorder = Color(0xFFEF4444)
@@ -1281,7 +1284,7 @@ fun AppSecurityUnlockDialog(
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = if (isAlreadyUnlockedToday) "LIMITE DIÁRIO ATINGIDO (1/1)" else "TEMPO ESGOTADO • BLOQUEIO RÍGIDO",
+                        text = if (isAlreadyUnlockedToday) "LIMITE DIÁRIO ATINGIDO ($maxDailyUnlocks/$maxDailyUnlocks)" else "TEMPO ESGOTADO • BLOQUEIO RÍGIDO",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
@@ -1325,9 +1328,9 @@ fun AppSecurityUnlockDialog(
                 ) {
                     Text(
                         text = if (isAlreadyUnlockedToday) {
-                            "Você já realizou 1 desbloqueio deste aplicativo hoje. Pelas regras de foco estrito do Lock In, cada aplicativo só pode ser desbloqueado no máximo 1 vez por dia.\n\nPara preservar seu foco e meta diária, novos desbloqueios deste app só serão permitidos após o reset à meia-noite."
+                            "Você já atingiu o limite de $maxDailyUnlocks desbloqueio(s) deste aplicativo hoje, conforme o nível de Lock escolhido.\n\nPara preservar seu foco e meta diária, novos desbloqueios deste app só serão permitidos após o reset à meia-noite."
                         } else {
-                            "Este aplicativo atingiu o limite de uso diário programado e foi totalmente bloqueado. Para poder reajustar o limite ou usá-lo novamente hoje, conclua o Desafio Rigoroso digitando sua senha de 12+ caracteres 5 vezes consecutivas e confirmando a frase de compromisso."
+                            "Este aplicativo atingiu o limite de uso diário programado e foi totalmente bloqueado. Para poder reajustar o limite ou usá-lo novamente hoje, conclua o Desafio Rigoroso digitando sua senha $passwordRepeats vez${if (passwordRepeats > 1) "es consecutivas" else ""} e confirmando a frase de compromisso."
                         },
                         fontSize = 11.sp,
                         color = subtextColor,
@@ -1377,7 +1380,7 @@ fun AppSecurityUnlockDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "DESBLOQUEAR (5X SENHA + FRASE)",
+                            text = "DESBLOQUEAR (${passwordRepeats}X SENHA + FRASE)",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = FontFamily.Monospace,

@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.ui.tutorial.tutorialTarget
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -137,6 +138,7 @@ fun ClockLimitScreen(
                     item {
                         NothingCard(
                             title = "TEMPO ABSOLUTO DE TELA DO CELULAR",
+                            modifier = Modifier.tutorialTarget("device_time"),
                             badge = if (isEnabled && screenTimeLimitMinutes > 0) "${tempLimitMinutes}m DEFINIDO" else "DESATIVADO"
                         ) {
                             Column {

@@ -10,6 +10,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import com.example.ui.components.TextInputProtection
 
 val LocalCustomTextColor = compositionLocalOf { CmfDefaultOrange }
 val LocalIsDarkTheme = compositionLocalOf { false }
@@ -21,7 +22,7 @@ private val CmfColorScheme = lightColorScheme(
     onPrimaryContainer = CmfDefaultOrange,
     secondary = CmfDark,
     onSecondary = Color.White,
-    background = Color(0xFFF9FAFB),
+    background = Color(0xFFF7F7F9),
     onBackground = Color(0xFF111827),
     surface = CmfWhite,
     onSurface = Color(0xFF111827),
@@ -38,9 +39,9 @@ private val CmfDarkColorScheme = darkColorScheme(
     onPrimaryContainer = Color(0xFFFF7A33),
     secondary = Color(0xFFF3F4F6),
     onSecondary = Color(0xFF111827),
-    background = Color(0xFF09090B),
+    background = Color(0xFF0F0F12),
     onBackground = Color(0xFFF4F4F5),
-    surface = Color(0xFF141418),
+    surface = Color(0xFF18181C),
     onSurface = Color(0xFFF4F4F5),
     surfaceVariant = Color(0xFF202026),
     onSurfaceVariant = Color(0xFFD1D5DB),
@@ -68,6 +69,17 @@ fun LockInTheme(
         onPrimaryContainer = customTextColor
     )
 
+    val platformHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val gatedHaptics = androidx.compose.runtime.remember(platformHaptics, context) {
+        object : androidx.compose.ui.hapticfeedback.HapticFeedback {
+            override fun performHapticFeedback(hapticFeedbackType: androidx.compose.ui.hapticfeedback.HapticFeedbackType) {
+                if (com.example.util.AppHaptics.isEnabled(context)) {
+                    platformHaptics.performHapticFeedback(hapticFeedbackType)
+                }
+            }
+        }
+    }
     val view = androidx.compose.ui.platform.LocalView.current
     if (!view.isInEditMode) {
         androidx.compose.runtime.SideEffect {
@@ -80,16 +92,19 @@ fun LockInTheme(
 
     CompositionLocalProvider(
         LocalCustomTextColor provides customTextColor,
-        LocalIsDarkTheme provides isDark
+        LocalIsDarkTheme provides isDark,
+        androidx.compose.ui.platform.LocalHapticFeedback provides gatedHaptics
     ) {
         MaterialTheme(
             colorScheme = dynamicScheme,
             typography = Typography
         ) {
-            CompositionLocalProvider(
-                LocalTextStyle provides TextStyle(fontFamily = BlockyFontFamily),
-                content = content
-            )
+            TextInputProtection {
+                CompositionLocalProvider(
+                    LocalTextStyle provides MaterialTheme.typography.bodyMedium,
+                    content = content
+                )
+            }
         }
     }
 }

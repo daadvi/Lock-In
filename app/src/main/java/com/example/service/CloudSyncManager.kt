@@ -1,8 +1,9 @@
 package com.example.service
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.util.Log
+import android.util.AtomicFile
+import com.example.util.AccountPasswordHash
 import com.example.LockInApplication
 import com.example.data.local.AppGroupEntity
 import com.example.data.local.FocusRoutine
@@ -10,16 +11,18 @@ import com.example.data.local.RestrictedAppEntity
 import com.example.data.local.RestrictedWebsiteEntity
 import com.example.data.model.AccountProfile
 import com.example.data.model.EmailProvider
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.util.Locale
 import java.security.MessageDigest
 
 data class CloudSyncResult(
@@ -52,7 +55,9 @@ object CloudSyncManager {
     private const val KEY_DISPLAY_NAME = "key_display_name"
     private const val KEY_LAST_SYNC = "key_last_sync"
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private const val MAX_BACKUP_BYTES = 1024 * 1024
+    private val backupLock = Any()
+    private val operationMutex = Mutex()
 
     private val _currentAccount = MutableStateFlow<AccountProfile?>(null)
     val currentAccount: StateFlow<AccountProfile?> = _currentAccount.asStateFlow()
@@ -92,59 +97,94 @@ object CloudSyncManager {
         }
     }
 
+    private fun normalizeEmail(email: String): String = email.trim().lowercase(Locale.ROOT)
+
     private fun getCloudBackupFile(context: Context, email: String): File {
-        val sanitized = email.trim().lowercase().replace(Regex("[^a-zA-Z0-9_]"), "_")
-        val dir = File(context.filesDir, "cloud_backups")
-        if (!dir.exists()) dir.mkdirs()
-        return File(dir, "backup_$sanitized.json")
+        // Preserve the complete identity; punctuation replacement aliases distinct accounts.
+        val digest = MessageDigest.getInstance("SHA-256").digest(normalizeEmail(email).toByteArray(Charsets.UTF_8))
+        val key = digest.joinToString("") { "%02x".format(it) }
+        return File(File(context.filesDir, "cloud_backups"), "backup_v3_$key.json")
     }
 
-    private fun getExternalBackupFile(context: Context, email: String): File? {
-        val sanitized = email.trim().lowercase().replace(Regex("[^a-zA-Z0-9_]"), "_")
-        val extDir = try { context.getExternalFilesDir(null) } catch (_: Exception) { null } ?: return null
-        val dir = File(extDir, "cloud_backups")
-        if (!dir.exists()) dir.mkdirs()
-        return File(dir, "backup_$sanitized.json")
+    private fun legacyBackupFile(directory: File, email: String): File {
+        val sanitized = normalizeEmail(email).replace(Regex("[^a-zA-Z0-9_]"), "_")
+        return File(File(directory, "cloud_backups"), "backup_$sanitized.json")
     }
 
-    private fun getExistingBackupFile(context: Context, email: String): File? {
-        val internalFile = getCloudBackupFile(context, email)
-        val externalFile = getExternalBackupFile(context, email)
-        return when {
-            internalFile.exists() && internalFile.length() > 0 && externalFile != null && externalFile.exists() && externalFile.length() > 0 -> {
-                if (externalFile.lastModified() > internalFile.lastModified()) externalFile else internalFile
+    private fun readVerifiedBackup(file: File, email: String): JSONObject {
+        // Bound the stream as well as the file metadata, including interrupted-write recovery.
+        val bytes = AtomicFile(file).openRead().use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= MAX_BACKUP_BYTES) { "Backup excede o limite de 1 MiB." }
+                output.write(buffer, 0, count)
             }
-            internalFile.exists() && internalFile.length() > 0 -> internalFile
-            externalFile != null && externalFile.exists() && externalFile.length() > 0 -> externalFile
-            else -> null
+            output.toByteArray()
+        }
+        val json = String(bytes, Charsets.UTF_8)
+        require(com.example.util.JsonInputGuard.isValid(json)) { "Backup com JSON inválido ou estrutura excessivamente aninhada." }
+        val root = JSONObject(json)
+        require(normalizeEmail(root.optString("email")) == normalizeEmail(email) && normalizeEmail(email).isNotBlank()) {
+            "O backup pertence a outra conta."
+        }
+        return root
+    }
+
+    private fun writeBackup(file: File, root: JSONObject) {
+        root.remove("trustPassword")
+        root.remove("accountPasswordHash")
+        val payload = root.toString().toByteArray(Charsets.UTF_8)
+        require(payload.size <= MAX_BACKUP_BYTES) { "Backup excede o limite de 1 MiB." }
+        check(file.parentFile!!.isDirectory || file.parentFile!!.mkdirs()) { "Não foi possível criar o backup local." }
+        val atomic = AtomicFile(file)
+        val output = atomic.startWrite()
+        try {
+            output.write(payload)
+            atomic.finishWrite(output)
+        } catch (error: Exception) {
+            atomic.failWrite(output)
+            throw error
         }
     }
 
-    fun hasCloudBackup(context: Context, email: String): Boolean {
-        val file = getExistingBackupFile(context, email)
-        return file != null && file.exists() && file.length() > 0
+    private fun readBackup(context: Context, email: String): JSONObject? = synchronized(backupLock) {
+        val current = getCloudBackupFile(context, email)
+        if (current.exists() || File(current.path + ".bak").exists()) {
+            return@synchronized readVerifiedBackup(current, email)
+        }
+        // Migrate only private legacy data after checking its embedded owner. External copies
+        // never establish identity or supply settings, even if their timestamps are newer.
+        val legacy = legacyBackupFile(context.filesDir, email)
+        if (!legacy.exists()) return@synchronized null
+        val root = readVerifiedBackup(legacy, email)
+        writeBackup(current, root)
+        legacy.delete()
+        root
     }
 
-    fun getCloudBackupSummary(context: Context, email: String): CloudBackupSummary? {
-        val file = getExistingBackupFile(context, email) ?: return null
-        return try {
-            val jsonStr = file.readText()
-            val root = JSONObject(jsonStr)
+    fun hasCloudBackup(context: Context, email: String): Boolean = try {
+        readBackup(context, email) != null
+    } catch (_: Exception) { false }
+
+    fun getCloudBackupSummary(context: Context, email: String): CloudBackupSummary? = try {
+        readBackup(context, email)?.let { root ->
             CloudBackupSummary(
-                email = root.optString("email", email),
+                email = normalizeEmail(root.getString("email")),
                 provider = root.optString("provider", "EMAIL"),
-                timestamp = root.optLong("timestamp", file.lastModified()),
+                timestamp = root.optLong("timestamp", 0L),
                 appsCount = root.optJSONArray("restrictedApps")?.length() ?: 0,
                 websitesCount = root.optJSONArray("restrictedWebsites")?.length() ?: 0,
                 routinesCount = root.optJSONArray("focusRoutines")?.length() ?: 0,
                 blacklistCount = root.optJSONArray("playStoreBlacklist")?.length() ?: 0,
                 screenTimeLimitMinutes = root.optInt("screenTimeLimitMinutes", 0)
             )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error reading backup summary", e)
-            null
         }
-    }
+    } catch (_: Exception) { null }
 
     fun hashPassword(password: String): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -153,39 +193,12 @@ object CloudSyncManager {
         return hashBytes.joinToString("") { "%02x".format(it) }
     }
 
-    fun isAccountRegistered(context: Context, email: String): Boolean {
-        val cleanEmail = email.trim().lowercase()
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val prefHash = prefs.getString("pass_hash_$cleanEmail", null)
-        if (!prefHash.isNullOrBlank()) return true
-        val backupFile = getExistingBackupFile(context, cleanEmail)
-        if (backupFile != null && backupFile.exists() && backupFile.length() > 0) {
-            return try {
-                val json = JSONObject(backupFile.readText())
-                val h = json.optString("accountPasswordHash", "")
-                h.isNotBlank()
-            } catch (_: Exception) {
-                false
-            }
-        }
-        return false
-    }
+    fun isAccountRegistered(context: Context, email: String): Boolean =
+        getStoredPasswordHash(context, email) != null
 
-    fun getStoredPasswordHash(context: Context, email: String): String? {
-        val cleanEmail = email.trim().lowercase()
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val prefHash = prefs.getString("pass_hash_$cleanEmail", null)
-        if (!prefHash.isNullOrBlank()) return prefHash
-        val backupFile = getExistingBackupFile(context, cleanEmail)
-        if (backupFile != null && backupFile.exists() && backupFile.length() > 0) {
-            try {
-                val json = JSONObject(backupFile.readText())
-                val h = json.optString("accountPasswordHash", "")
-                if (h.isNotBlank()) return h
-            } catch (_: Exception) {}
-        }
-        return null
-    }
+    fun getStoredPasswordHash(context: Context, email: String): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString("pass_hash_${normalizeEmail(email)}", null)?.takeIf { it.isNotBlank() }
 
     suspend fun registerAccount(
         context: Context,
@@ -194,18 +207,18 @@ object CloudSyncManager {
         provider: EmailProvider = EmailProvider.fromEmail(email),
         displayName: String = ""
     ): Result<AccountProfile> = withContext(Dispatchers.IO) {
-        val cleanEmail = email.trim().lowercase()
+        val cleanEmail = normalizeEmail(email)
         if (cleanEmail.isBlank() || !cleanEmail.contains("@") || !cleanEmail.contains(".")) {
             return@withContext Result.failure(IllegalArgumentException("E-mail inválido. Digite um e-mail com formato válido."))
         }
-        if (password.length < 6) {
+        if (password.length !in 6..1024) {
             return@withContext Result.failure(IllegalArgumentException("A senha deve ter pelo menos 6 dígitos para proteger sua conta."))
         }
         val existingHash = getStoredPasswordHash(context, cleanEmail)
         if (existingHash != null) {
             return@withContext Result.failure(IllegalStateException("Este e-mail já está cadastrado no Lock In. Por favor, acesse a aba 'ENTRAR' usando a sua senha."))
         }
-        val newHash = hashPassword(password)
+        val newHash = AccountPasswordHash.hash(password)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString("pass_hash_$cleanEmail", newHash).apply()
 
@@ -218,7 +231,7 @@ object CloudSyncManager {
         email: String,
         password: String
     ): Result<AccountProfile> = withContext(Dispatchers.IO) {
-        val cleanEmail = email.trim().lowercase()
+        val cleanEmail = normalizeEmail(email)
         if (cleanEmail.isBlank()) {
             return@withContext Result.failure(IllegalArgumentException("Digite seu e-mail para entrar."))
         }
@@ -226,21 +239,16 @@ object CloudSyncManager {
         if (storedHash == null) {
             return@withContext Result.failure(IllegalStateException("Nenhuma conta com este e-mail foi encontrada. Acesse a aba 'CRIAR CONTA' para registrar com senha."))
         }
-        val inputHash = hashPassword(password)
-        if (inputHash != storedHash) {
+        val valid = if (AccountPasswordHash.isCurrent(storedHash)) AccountPasswordHash.verify(password, storedHash)
+            else password.length in 1..1024 && MessageDigest.isEqual(hashPassword(password).toByteArray(), storedHash.toByteArray())
+        if (!valid) {
             return@withContext Result.failure(SecurityException("Senha incorreta. Não é possível acessar ou sincronizar os dados deste e-mail sem a senha correta."))
         }
+        val upgraded = if (AccountPasswordHash.isCurrent(storedHash)) storedHash else AccountPasswordHash.hash(password)
         val provider = EmailProvider.fromEmail(cleanEmail)
-        val profile = signInOrRegisterInternal(context, cleanEmail, provider, passwordHash = storedHash)
+        val profile = signInOrRegisterInternal(context, cleanEmail, provider, passwordHash = upgraded)
         Result.success(profile)
     }
-
-    suspend fun signInOrRegister(
-        context: Context,
-        email: String,
-        provider: EmailProvider,
-        displayName: String = ""
-    ): AccountProfile = signInOrRegisterInternal(context, email, provider, displayName, null)
 
     private suspend fun signInOrRegisterInternal(
         context: Context,
@@ -249,7 +257,7 @@ object CloudSyncManager {
         displayName: String = "",
         passwordHash: String? = null
     ): AccountProfile = withContext(Dispatchers.IO) {
-        val cleanEmail = email.trim().lowercase()
+        val cleanEmail = normalizeEmail(email)
         val name = displayName.trim().ifBlank { cleanEmail.substringBefore("@") }
 
         val profile = AccountProfile(
@@ -273,25 +281,22 @@ object CloudSyncManager {
 
         _currentAccount.value = profile
 
-        // If there's an existing cloud backup for this email, automatically restore it
-        if (hasCloudBackup(context, cleanEmail)) {
-            restoreDataFromCloud(context, cleanEmail)
-        } else {
-            // First time login with this email: immediately sync current settings to cloud
-            syncDataToCloud(context)
-        }
+        // Logging in never rolls back active restrictions. Restore is a separate action.
+        if (!hasCloudBackup(context, cleanEmail)) syncDataToCloud(context)
 
         profile
     }
 
     fun signOut(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().clear().apply()
+        prefs.edit().remove(KEY_LOGGED_IN).remove(KEY_EMAIL).remove(KEY_PROVIDER)
+            .remove(KEY_DISPLAY_NAME).remove(KEY_LAST_SYNC).apply()
+        _lastSyncEpoch.value = 0L
         _currentAccount.value = null
         _syncMessage.value = "Desconectado da conta de sincronização."
     }
 
-    suspend fun syncDataToCloud(context: Context): CloudSyncResult = withContext(Dispatchers.IO) {
+    suspend fun syncDataToCloud(context: Context): CloudSyncResult = withContext(Dispatchers.IO) { operationMutex.withLock {
         val account = _currentAccount.value
         if (account == null) {
             return@withContext CloudSyncResult(
@@ -301,7 +306,7 @@ object CloudSyncManager {
         }
 
         _isSyncing.value = true
-        _syncMessage.value = "Sincronizando com a nuvem..."
+        _syncMessage.value = "Salvando backup local..."
 
         try {
             val app = LockInApplication.instance
@@ -321,19 +326,14 @@ object CloudSyncManager {
             val screenTimeEnabled = ScreenTimeManager.isEnabledFlow.value
 
             val rootJson = JSONObject().apply {
-                put("version", 2)
+                put("version", 3)
                 put("email", account.email)
                 put("provider", account.provider.name)
                 put("displayName", account.displayName)
                 put("timestamp", System.currentTimeMillis())
 
                 // User preferences
-                val storedPwdHash = getStoredPasswordHash(context, account.email)
-                if (!storedPwdHash.isNullOrBlank()) {
-                    put("accountPasswordHash", storedPwdHash)
-                }
                 put("userName", userPrefs.userName.value)
-                put("trustPassword", userPrefs.getTrustPassword())
                 put("textColorHex", userPrefs.textColorHex.value)
                 put("themeMode", userPrefs.themeMode.value)
                 put("screenTimeLimitMinutes", screenTimeLimitMinutes)
@@ -405,6 +405,8 @@ object CloudSyncManager {
                         put("daysOfWeek", JSONArray(r.daysOfWeek))
                         put("allowedPackages", JSONArray(r.allowedPackages))
                         put("isEnabled", r.isEnabled)
+                        put("targetPackage", r.targetPackage ?: JSONObject.NULL)
+                        put("targetAppName", r.targetAppName ?: JSONObject.NULL)
                     }
                     routineArray.put(rObj)
                 }
@@ -415,24 +417,29 @@ object CloudSyncManager {
                 put("playStoreBlacklistEnabled", blacklistEnabled)
             }
 
-            // Save to persistent cloud backup file (internal + external storage)
-            val jsonPayload = rootJson.toString(2)
-            val file = getCloudBackupFile(context, account.email)
-            file.writeText(jsonPayload)
-            try {
-                getExternalBackupFile(context, account.email)?.writeText(jsonPayload)
-            } catch (_: Exception) {}
+            synchronized(backupLock) {
+                writeBackup(getCloudBackupFile(context, account.email), rootJson)
+                // Remove only our known legacy copies after the atomic private write succeeds.
+                val legacy = legacyBackupFile(context.filesDir, account.email)
+                if (legacy.exists() && runCatching { readVerifiedBackup(legacy, account.email) }.isSuccess) legacy.delete()
+                try {
+                    context.getExternalFilesDir(null)?.let { directory ->
+                        val external = legacyBackupFile(directory, account.email)
+                        if (external.exists() && runCatching { readVerifiedBackup(external, account.email) }.isSuccess) external.delete()
+                    }
+                } catch (_: Exception) { /* Never make a private backup depend on removable storage. */ }
+            }
 
             val now = System.currentTimeMillis()
-            _lastSyncEpoch.value = now
-
             val updatedProfile = account.copy(lastSyncEpoch = now, isSynced = true)
-            _currentAccount.value = updatedProfile
+            // A completed save must never log back in an account that signed out meanwhile.
+            if (_currentAccount.compareAndSet(account, updatedProfile)) {
+                _lastSyncEpoch.value = now
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit().putLong(KEY_LAST_SYNC, now).apply()
+            }
 
-            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            prefs.edit().putLong(KEY_LAST_SYNC, now).apply()
-
-            val msg = "Sincronizado na nuvem com sucesso (${apps.size} apps, ${routines.size} rotinas, ${blacklist.size} na blacklist)."
+            val msg = "Backup local salvo com sucesso (${apps.size} apps, ${routines.size} rotinas, ${blacklist.size} na blacklist)."
             _syncMessage.value = msg
 
             CloudSyncResult(
@@ -450,43 +457,80 @@ object CloudSyncManager {
         } finally {
             _isSyncing.value = false
         }
+    } }
+
+    /** Validate the entire document before any preference/database mutation. */
+    private fun validateRestore(root: JSONObject) {
+        fun number(obj: JSONObject, key: String, min: Long = 0, max: Long = Int.MAX_VALUE.toLong()) {
+            if (!obj.has(key)) return
+            val value = obj.get(key)
+            require(value is Number && value.toDouble().isFinite() && value.toDouble() == value.toLong().toDouble() && value.toLong() in min..max) { "Valor inválido: $key" }
+        }
+        fun text(obj: JSONObject, key: String) { require(obj.get(key) is String && obj.getString(key).isNotBlank() && obj.getString(key).length <= 2048) { "Campo inválido: $key" } }
+        fun array(obj: JSONObject, key: String, max: Int, check: (Any) -> Unit) {
+            if (!obj.has(key)) return
+            val a = obj.getJSONArray(key)
+            require(a.length() <= max) { "Itens em excesso: $key" }
+            for (i in 0 until a.length()) check(a.get(i))
+        }
+        fun strings(obj: JSONObject, key: String, max: Int) = array(obj, key, max) { require(it is String && it.length <= 2048) }
+        number(root, "screenTimeLimitMinutes")
+        number(root, "screenTimeResetHours", 0, 8760)
+        if (root.has("themeMode")) require(root.getString("themeMode") in setOf("SYSTEM", "DARK", "LIGHT"))
+        if (root.has("textColorHex")) android.graphics.Color.parseColor(root.getString("textColorHex"))
+        array(root, "restrictedApps", 1000) { value ->
+            val a = value as JSONObject
+            text(a, "packageName"); text(a, "appName")
+            number(a, "individualLimitMinutes"); number(a, "shortVideoLimitMinutes")
+            number(a, "individualRemainingSeconds", 0, Int.MAX_VALUE.toLong() * 60)
+            number(a, "shortVideoRemainingSeconds", 0, Int.MAX_VALUE.toLong() * 60)
+        }
+        array(root, "restrictedWebsites", 1000) { value ->
+            val w = value as JSONObject; text(w, "domain"); number(w, "limitMinutes")
+            number(w, "remainingSeconds", 0, Int.MAX_VALUE.toLong() * 60)
+        }
+        array(root, "appGroups", 100) { value ->
+            val g = value as JSONObject; text(g, "id"); text(g, "name"); number(g, "limitMinutes")
+            number(g, "remainingSeconds", 0, Int.MAX_VALUE.toLong() * 60)
+            if (g.has("packageNamesCsv")) require(g.get("packageNamesCsv") is String)
+            strings(g, "packageNames", 1000)
+        }
+        array(root, "focusRoutines", 100) { value ->
+            val r = value as JSONObject; text(r, "id"); text(r, "name")
+            for (key in listOf("startHour", "endHour")) { require(r.has(key)); number(r, key, 0, 23) }
+            for (key in listOf("startMinute", "endMinute")) { require(r.has(key)); number(r, key, 0, 59) }
+            array(r, "daysOfWeek", 7) { require(it is Int && it in 1..7) }
+            strings(r, "allowedPackages", 3)
+            for (key in listOf("targetPackage", "targetAppName")) if (r.has(key) && !r.isNull(key)) text(r, key)
+        }
+        strings(root, "playStoreBlacklist", 1000)
     }
 
-    suspend fun restoreDataFromCloud(context: Context, email: String): CloudSyncResult = withContext(Dispatchers.IO) {
-        val file = getExistingBackupFile(context, email)
-        if (file == null || !file.exists()) {
-            return@withContext CloudSyncResult(
-                success = false,
-                message = "Nenhum backup encontrado na nuvem para este e-mail."
-            )
+    suspend fun restoreDataFromCloud(context: Context, email: String, afterTrustChallenge: Boolean = false): CloudSyncResult = withContext(Dispatchers.IO) { operationMutex.withLock {
+        val cleanEmail = normalizeEmail(email)
+        if (_currentAccount.value?.email?.let(::normalizeEmail) != cleanEmail) {
+            return@withContext CloudSyncResult(false, "Entre na conta correspondente antes de restaurar o backup.")
         }
-
         _isSyncing.value = true
-        _syncMessage.value = "Restaurando dados da nuvem..."
+        _syncMessage.value = "Restaurando backup local..."
 
         try {
-            val jsonStr = file.readText()
-            val root = JSONObject(jsonStr)
+            val root = readBackup(context, cleanEmail)
+                ?: return@withContext CloudSyncResult(false, "Nenhum backup local válido encontrado para este e-mail.")
 
+            validateRestore(root)
             val app = LockInApplication.instance
+            if (app.userPreferences.isRegistered.value && !afterTrustChallenge) {
+                return@withContext CloudSyncResult(false, "Conclua o desafio de confiança antes de restaurar as regras.")
+            }
             val dao = app.database.lockInDao()
             val userPrefs = app.userPreferences
 
-            // 1. Restore User Preferences
-            val backupPwdHash = root.optString("accountPasswordHash", "")
-            if (backupPwdHash.isNotBlank()) {
-                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit().putString("pass_hash_${email.trim().lowercase()}", backupPwdHash).apply()
-            }
-
+            // A settings backup never authenticates an account or replaces its trust password.
             val userName = root.optString("userName", "")
-            val trustPassword = root.optString("trustPassword", "")
             val textColorHex = root.optString("textColorHex", "#FF5500")
             val themeMode = root.optString("themeMode", "SYSTEM")
-
-            if (userName.isNotBlank() && trustPassword.isNotBlank()) {
-                userPrefs.setRegistration(userName, trustPassword)
-            }
+            if (userName.isNotBlank()) userPrefs.updateUserName(userName)
             if (textColorHex.isNotBlank()) {
                 userPrefs.setTextColorHex(textColorHex)
             }
@@ -610,7 +654,9 @@ object CloudSyncManager {
                             endMinute = rObj.getInt("endMinute"),
                             daysOfWeek = if (days.isEmpty()) listOf(1, 2, 3, 4, 5, 6, 7) else days,
                             allowedPackages = pkgs.take(3),
-                            isEnabled = rObj.optBoolean("isEnabled", true)
+                            isEnabled = rObj.optBoolean("isEnabled", true),
+                            targetPackage = rObj.optString("targetPackage").takeIf { !rObj.isNull("targetPackage") && it.isNotBlank() },
+                            targetAppName = rObj.optString("targetAppName").takeIf { !rObj.isNull("targetAppName") && it.isNotBlank() }
                         )
                     )
                 }
@@ -634,7 +680,7 @@ object CloudSyncManager {
             val now = System.currentTimeMillis()
             _lastSyncEpoch.value = now
 
-            val msg = "Dados restaurados com sucesso da nuvem! ($appsRestored apps, $routinesRestored rotinas, $blacklistRestored apps na blacklist)."
+            val msg = "Backup local restaurado com sucesso! ($appsRestored apps, $routinesRestored rotinas, $blacklistRestored apps na blacklist)."
             _syncMessage.value = msg
 
             CloudSyncResult(
@@ -652,5 +698,5 @@ object CloudSyncManager {
         } finally {
             _isSyncing.value = false
         }
-    }
+    } }
 }

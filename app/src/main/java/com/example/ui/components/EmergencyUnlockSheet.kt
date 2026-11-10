@@ -43,7 +43,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
+import com.example.util.EmptyTextToolbar
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,8 +62,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalTextToolbar
-import androidx.compose.ui.platform.TextToolbar
-import androidx.compose.ui.platform.TextToolbarStatus
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -81,19 +79,6 @@ import com.example.service.StreakManager
 import com.example.ui.theme.BlockyFontFamily
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
-
-// Custom text toolbar that disables copy/paste on confirmation phrases
-private val NoPasteTextToolbar = object : TextToolbar {
-    override val status: TextToolbarStatus get() = TextToolbarStatus.Hidden
-    override fun hide() {}
-    override fun showMenu(
-        rect: androidx.compose.ui.geometry.Rect,
-        onCopyRequested: (() -> Unit)?,
-        onPasteRequested: (() -> Unit)?,
-        onCutRequested: (() -> Unit)?,
-        onSelectAllRequested: (() -> Unit)?
-    ) {}
-}
 
 /**
  * Slide-up button placed on the bottom-left of the lock screen dock.
@@ -272,7 +257,7 @@ fun SlideUpEmergencyButton(
 /**
  * Full-screen Emergency Unlock screen displaying:
  * 1. Warning that streak / sequência will be lost and reset to 0
- * 2. 5 password entries without error
+ * 2. Consecutive correct password entries according to the saved lock level
  * 3. Exact confirmation phrase: "Estou seguro que quero desbloquear meu dispositivo"
  * 4. Monthly usage restriction (2 times per month)
  */
@@ -283,6 +268,7 @@ fun EmergencyUnlockScreen(
 ) {
     val context = LocalContext.current
     val userPrefs = remember { UserPreferencesRepository(context) }
+    val targetPassCount = remember(userPrefs) { userPrefs.getLockLevel().passwordRepeatCount }
     val correctPassword = remember {
         val stored = userPrefs.getTrustPassword()
         if (stored.isNotBlank()) stored else "LockIn@2026"
@@ -301,13 +287,13 @@ fun EmergencyUnlockScreen(
     val requiredPhrase = EmergencyUnlockManager.CONFIRMATION_PHRASE
     val isPhraseValid = com.example.util.KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(phraseInput, requiredPhrase)
 
-    val isFullyReady = successfulPassCount >= 5 && isPhraseValid
+    val isFullyReady = successfulPassCount >= targetPassCount && isPhraseValid
 
     fun verifyPasswordAttempt() {
         if (com.example.util.CryptoPasswordHelper.verifyPassword(passwordInput, correctPassword)) {
             val next = successfulPassCount + 1
-            if (next >= 5) {
-                successfulPassCount = 5
+            if (next >= targetPassCount) {
+                successfulPassCount = targetPassCount
                 errorMessage = null
             } else {
                 successfulPassCount = next
@@ -317,12 +303,12 @@ fun EmergencyUnlockScreen(
         } else {
             // Strict security rule: Any mistake resets the counter to 0!
             successfulPassCount = 0
-            errorMessage = "Senha incorreta! Todas as 5 tentativas foram resetadas para 0. Digite 5 vezes consecutivas sem erro."
+            errorMessage = "Senha incorreta! A contagem foi zerada. Digite a senha $targetPassCount vez${if (targetPassCount > 1) "es consecutivas" else ""} sem erro."
             passwordInput = ""
         }
     }
 
-    CompositionLocalProvider(LocalTextToolbar provides NoPasteTextToolbar) {
+    CompositionLocalProvider(LocalTextToolbar provides EmptyTextToolbar) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = Color(0xFF09090B)
@@ -450,7 +436,7 @@ fun EmergencyUnlockScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // SECTION 1: PASSWORD (5 TIMES WITHOUT ERROR)
+                // SECTION 1: PASSWORD ACCORDING TO THE SAVED LOCK LEVEL
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -461,7 +447,7 @@ fun EmergencyUnlockScreen(
                 ) {
                     Column {
                         Text(
-                            text = "1. DIGITE SUA SENHA (5 VEZES SEM ERRO)",
+                            text = "1. DIGITE SUA SENHA ($targetPassCount VEZ${if (targetPassCount > 1) "ES" else ""} SEM ERRO)",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = BlockyFontFamily,
@@ -469,7 +455,7 @@ fun EmergencyUnlockScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Para garantir que o desbloqueio não foi por impulso, você deve digitar sua senha 5 vezes consecutivas. Qualquer erro zera a contagem.",
+                            text = "Para garantir que o desbloqueio não foi por impulso, você deve digitar sua senha $targetPassCount vez${if (targetPassCount > 1) "es consecutivas" else ""}. Qualquer erro zera a contagem.",
                             fontSize = 11.sp,
                             color = Color(0xFFA1A1AA),
                             lineHeight = 15.sp
@@ -477,12 +463,12 @@ fun EmergencyUnlockScreen(
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // 5 Step Progress Indicators
+                        // One progress indicator per required password entry
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            for (step in 1..5) {
+                            for (step in 1..targetPassCount) {
                                 val isDone = successfulPassCount >= step
                                 Box(
                                     modifier = Modifier
@@ -506,7 +492,7 @@ fun EmergencyUnlockScreen(
                                         )
                                     } else {
                                         Text(
-                                            text = "$step/5",
+                                            text = "$step/$targetPassCount",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = BlockyFontFamily,
@@ -519,14 +505,14 @@ fun EmergencyUnlockScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        if (successfulPassCount < 5) {
-                            OutlinedTextField(
+                        if (successfulPassCount < targetPassCount) {
+                            ManualEntryTextField(
                                 value = passwordInput,
                                 onValueChange = {
                                     passwordInput = it
                                     errorMessage = null
                                 },
-                                label = { Text("Senha (Tentativa ${successfulPassCount + 1} de 5)") },
+                                label = { Text("Senha (Tentativa ${successfulPassCount + 1} de $targetPassCount)") },
                                 placeholder = { Text("Digite sua senha...") },
                                 singleLine = true,
                                 visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
@@ -566,7 +552,7 @@ fun EmergencyUnlockScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5500))
                             ) {
                                 Text(
-                                    text = "CONFIRMAR ETAPA (${successfulPassCount + 1}/5)",
+                                    text = "CONFIRMAR ETAPA (${successfulPassCount + 1}/$targetPassCount)",
                                     fontWeight = FontWeight.Black,
                                     fontFamily = BlockyFontFamily,
                                     fontSize = 11.sp,
@@ -574,7 +560,7 @@ fun EmergencyUnlockScreen(
                                 )
                             }
                         } else {
-                            // 5/5 completed banner
+                            // Password sequence completed banner
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -591,7 +577,7 @@ fun EmergencyUnlockScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Senha confirmada 5 vezes com sucesso!",
+                                    text = "Senha confirmada $targetPassCount vez${if (targetPassCount > 1) "es" else ""} com sucesso!",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF81C784)
@@ -633,7 +619,7 @@ fun EmergencyUnlockScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Digite manualmente a frase abaixo para autorizar o desbloqueio:",
+                            text = "Digite a frase manualmente. Maiúsculas e minúsculas são aceitas:",
                             fontSize = 11.sp,
                             color = Color(0xFFA1A1AA)
                         )
@@ -662,7 +648,7 @@ fun EmergencyUnlockScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        OutlinedTextField(
+                        ManualEntryTextField(
                             value = phraseInput,
                             onValueChange = { phraseInput = it },
                             placeholder = { Text("Digite a frase exata aqui...", fontSize = 12.sp) },
@@ -736,7 +722,7 @@ fun EmergencyUnlockScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isFullyReady) "DESBLOQUEAR (ZERAR SEQUÊNCIA)" else "PREENCHA A SENHA (5X) E A FRASE",
+                            text = if (isFullyReady) "DESBLOQUEAR (ZERAR SEQUÊNCIA)" else "PREENCHA A SENHA (${targetPassCount}X) E A FRASE",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = BlockyFontFamily,

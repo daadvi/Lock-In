@@ -35,6 +35,7 @@ import com.example.LockInApplication
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
@@ -398,7 +399,9 @@ class FloatingIslandService : Service() {
                             params.x = snapX
                             safeUpdateLayout(params)
                             try {
-                                floatingView?.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                                if (com.example.util.AppHaptics.isEnabled(this@FloatingIslandService)) {
+                                    floatingView?.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                                }
                             } catch (_: Exception) {}
 
                             val ratioX = (params.x.toFloat() / currentScreenWidth).coerceIn(0.02f, 0.98f)
@@ -743,6 +746,7 @@ class FloatingIslandService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        scope.cancel()
         observeJob?.cancel()
         watcherJob?.cancel()
         prefsJob?.cancel()
@@ -810,10 +814,14 @@ class FloatingIslandService : Service() {
         }
 
         fun hideIsland(context: Context) {
-            val intent = Intent(context, FloatingIslandService::class.java).apply {
-                action = ACTION_HIDE
+            // Hiding an absent overlay must not start a foreground service. This is called
+            // for every non-monitored/banking window and can otherwise flood Android's service queue.
+            val service = instance ?: return
+            service.scope.launch(Dispatchers.Main.immediate) {
+                service.isDemoMode = false
+                service.demoJob?.cancel()
+                service.floatingView?.visibility = View.GONE
             }
-            startServiceCompat(context, intent)
         }
 
         fun startTestIsland(context: Context) {

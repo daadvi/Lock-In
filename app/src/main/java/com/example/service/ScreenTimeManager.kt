@@ -89,7 +89,7 @@ object ScreenTimeManager {
         if (!enabled || limitMinutes <= 0) {
             _remainingSecondsFlow.value = 0L
             _isLockoutActiveFlow.value = false
-            startMonitoring(context.applicationContext)
+            stopMonitoring()
             return
         }
 
@@ -311,6 +311,7 @@ object ScreenTimeManager {
     fun setEnabled(context: Context, enabled: Boolean) {
         _isEnabledFlow.value = enabled
         getPrefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
+        if (enabled) startMonitoring(context.applicationContext) else stopMonitoring()
         if (!enabled) {
             _isLockoutActiveFlow.value = false
             _lockoutUntilEpochFlow.value = 0L

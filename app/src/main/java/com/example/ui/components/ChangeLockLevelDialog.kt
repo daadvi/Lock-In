@@ -37,7 +37,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -210,6 +209,7 @@ fun ChangeLockLevelDialog(
                         ) {
                             LockLevel.entries.forEach { level ->
                                 val isCurrent = level == currentLevel
+                                val palette = com.example.ui.theme.lockLevelColors(level)
                                 val isUpgrade = level.levelNumber > currentLevel.levelNumber
                                 val isDowngrade = level.levelNumber < currentLevel.levelNumber
 
@@ -218,12 +218,11 @@ fun ChangeLockLevelDialog(
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(12.dp))
                                         .background(
-                                            if (isCurrent) accentColor.copy(alpha = 0.08f)
-                                            else if (isDark) Color(0xFF202024) else Color(0xFFF9F9FB)
+                                            palette.background(isCurrent)
                                         )
                                         .border(
                                             width = if (isCurrent) 1.5.dp else 1.dp,
-                                            color = if (isCurrent) accentColor else borderColor,
+                                            color = palette.accent.copy(alpha = if (isCurrent) 1f else .45f),
                                             shape = RoundedCornerShape(12.dp)
                                         )
                                         .clickable {
@@ -253,16 +252,14 @@ fun ChangeLockLevelDialog(
                                                     modifier = Modifier
                                                         .size(28.dp)
                                                         .clip(CircleShape)
-                                                        .background(
-                                                            if (isCurrent) accentColor else borderColor
-                                                        ),
+                                                        .background(palette.accent.copy(alpha = .18f)),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Text(
                                                         text = "${level.levelNumber}",
                                                         fontSize = 13.sp,
                                                         fontWeight = FontWeight.Black,
-                                                        color = Color.White,
+                                                        color = palette.accent,
                                                         fontFamily = FontFamily.Monospace
                                                     )
                                                 }
@@ -444,7 +441,7 @@ fun ChangeLockLevelDialog(
 
                                     Spacer(modifier = Modifier.height(16.dp))
 
-                                    OutlinedTextField(
+                                    ManualEntryTextField(
                                         value = passwordInput,
                                         onValueChange = { newVal ->
                                             if (!isManualTyping(passwordInput, newVal)) {
@@ -546,7 +543,7 @@ fun ChangeLockLevelDialog(
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = "Digite exatamente a frase abaixo, caractere por caractere (cópia e colagem desabilitada):",
+                                        text = "Digite a frase manualmente. Maiúsculas e minúsculas são aceitas; colagem desabilitada:",
                                         fontSize = 11.sp,
                                         color = subtextColor
                                     )
@@ -572,10 +569,10 @@ fun ChangeLockLevelDialog(
 
                                     Spacer(modifier = Modifier.height(14.dp))
 
-                                    OutlinedTextField(
+                                    ManualEntryTextField(
                                         value = phraseInput,
                                         onValueChange = { newVal ->
-                                            if (!isManualTyping(phraseInput, newVal, maxBurst = 3)) {
+                                            if (!isManualTyping(phraseInput, newVal)) {
                                                 errorMessage = "Cópia e colagem não são permitidas! Digite a frase manualmente."
                                             } else {
                                                 phraseInput = newVal

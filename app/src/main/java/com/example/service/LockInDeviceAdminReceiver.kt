@@ -17,7 +17,11 @@ class LockInDeviceAdminReceiver : DeviceAdminReceiver() {
     }
 
     override fun onDisableRequested(context: Context, intent: Intent): CharSequence {
-        return "ATENÇÃO: A desativação do Lock In exigirá verificação máxima de segurança com 5 senhas e confirmação por frase!"
+        if (!DeviceAdminManager.isUninstallAuthorized(context)) {
+            LockInAccessibilityService.instance?.showUninstallChallenge(com.example.UninstallProtectionActivity.MODE_DEACTIVATE_ADMIN)
+        }
+        val passwordRepeats = com.example.LockInApplication.instance.userPreferences.getLockLevel().passwordRepeatCount
+        return "ATENÇÃO: A desativação do Lock In exige digitar a senha $passwordRepeats vez${if (passwordRepeats > 1) "es" else ""} e completar as frases de confirmação, conforme seu nível de Lock."
     }
 
     override fun onDisabled(context: Context, intent: Intent) {

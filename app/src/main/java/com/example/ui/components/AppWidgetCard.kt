@@ -69,7 +69,7 @@ fun AppWidgetCard(
 
     val surfaceBg = MaterialTheme.colorScheme.surface
     val cardBg = if (isZero) (if (isDark) Color(0xFF351215) else Color(0xFFFEE2E2)) else surfaceBg
-    val borderCol = if (isZero) Color(0xFFEF4444) else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    val borderCol = if (isZero) Color(0xFFEF4444) else MaterialTheme.colorScheme.outlineVariant
     val borderWidth = if (isZero) 2.dp else 1.dp
     val textColor = MaterialTheme.colorScheme.onSurface
 

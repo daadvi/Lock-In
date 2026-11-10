@@ -19,8 +19,7 @@ fun DotMatrixPattern(
     spacingDp: Float = 24f,
     dotRadiusDp: Float = 1.2f
 ) {
-    val isDark = LocalIsDarkTheme.current
-    val solidBgColor = if (isDark) Color(0xFF0F0F12) else Color(0xFFF7F7F9)
+    val solidBgColor = androidx.compose.material3.MaterialTheme.colorScheme.background
 
     Box(
         modifier = modifier

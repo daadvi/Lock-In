@@ -15,7 +15,7 @@ import com.example.service.ScreenTimeManager
 import com.example.service.StreakManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+
 
 object LockInWidgetManager {
 
@@ -27,45 +27,46 @@ object LockInWidgetManager {
 
     private val widgetScope = CoroutineScope(Dispatchers.Default)
 
+    private val updateQueue = WidgetUpdateQueue(widgetScope) { appContext ->
+        try {
+            val appWidgetManager = AppWidgetManager.getInstance(appContext)
+
+            // 1. Update Screen Time Widgets
+            val screenTimeIds = appWidgetManager.getAppWidgetIds(
+                ComponentName(appContext, LockInScreenTimeWidget::class.java)
+            )
+            if (screenTimeIds.isNotEmpty()) {
+                updateScreenTimeWidgets(appContext, appWidgetManager, screenTimeIds)
+            }
+
+            // 2. Update Focus Widgets
+            val focusIds = appWidgetManager.getAppWidgetIds(
+                ComponentName(appContext, LockInFocusWidget::class.java)
+            )
+            if (focusIds.isNotEmpty()) {
+                updateFocusWidgets(appContext, appWidgetManager, focusIds)
+            }
+
+            // 3. Update Quick Bar Widgets
+            val barIds = appWidgetManager.getAppWidgetIds(
+                ComponentName(appContext, LockInQuickBarWidget::class.java)
+            )
+            if (barIds.isNotEmpty()) {
+                updateQuickBarWidgets(appContext, appWidgetManager, barIds)
+            }
+
+            // 4. Update Adherence Consistency Widgets
+            val adherenceIds = appWidgetManager.getAppWidgetIds(
+                ComponentName(appContext, LockInAdherenceWidget::class.java)
+            )
+            if (adherenceIds.isNotEmpty()) {
+                updateAdherenceWidgets(appContext, appWidgetManager, adherenceIds)
+            }
+        } catch (_: Exception) {}
+    }
+
     fun updateAllWidgets(context: Context) {
-        val appContext = context.applicationContext
-        widgetScope.launch {
-            try {
-                val appWidgetManager = AppWidgetManager.getInstance(appContext) ?: return@launch
-
-                // 1. Update Screen Time Widgets
-                val screenTimeIds = appWidgetManager.getAppWidgetIds(
-                    ComponentName(appContext, LockInScreenTimeWidget::class.java)
-                )
-                if (screenTimeIds.isNotEmpty()) {
-                    updateScreenTimeWidgets(appContext, appWidgetManager, screenTimeIds)
-                }
-
-                // 2. Update Focus Widgets
-                val focusIds = appWidgetManager.getAppWidgetIds(
-                    ComponentName(appContext, LockInFocusWidget::class.java)
-                )
-                if (focusIds.isNotEmpty()) {
-                    updateFocusWidgets(appContext, appWidgetManager, focusIds)
-                }
-
-                // 3. Update Quick Bar Widgets
-                val barIds = appWidgetManager.getAppWidgetIds(
-                    ComponentName(appContext, LockInQuickBarWidget::class.java)
-                )
-                if (barIds.isNotEmpty()) {
-                    updateQuickBarWidgets(appContext, appWidgetManager, barIds)
-                }
-
-                // 4. Update Adherence Consistency Widgets
-                val adherenceIds = appWidgetManager.getAppWidgetIds(
-                    ComponentName(appContext, LockInAdherenceWidget::class.java)
-                )
-                if (adherenceIds.isNotEmpty()) {
-                    updateAdherenceWidgets(appContext, appWidgetManager, adherenceIds)
-                }
-            } catch (_: Exception) {}
-        }
+        updateQueue.request(context.applicationContext)
     }
 
     fun updateScreenTimeWidgets(

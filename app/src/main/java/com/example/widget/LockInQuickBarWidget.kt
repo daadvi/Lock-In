@@ -11,7 +11,7 @@ class LockInQuickBarWidget : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        LockInWidgetManager.updateQuickBarWidgets(context, appWidgetManager, appWidgetIds)
+        LockInWidgetManager.updateAllWidgets(context)
     }
 
     override fun onEnabled(context: Context) {

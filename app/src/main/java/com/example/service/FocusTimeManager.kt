@@ -5,6 +5,8 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ApplicationInfo
 import android.os.Build
+import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import com.example.FocusLockActivity
 import com.example.data.local.FocusRoutine
@@ -25,6 +27,8 @@ object FocusTimeManager {
     private const val PREFS_NAME = "lock_in_focus_time_prefs"
     private const val KEY_IS_ACTIVE = "focus_is_active"
     private const val KEY_END_EPOCH = "focus_end_epoch"
+    private const val KEY_END_ELAPSED = "focus_end_elapsed"
+    private const val KEY_START_BOOT = "focus_start_boot"
     private const val KEY_TOTAL_MINUTES = "focus_total_minutes"
     private const val KEY_ACTIVE_ROUTINE_NAME = "focus_active_routine_name"
     private const val KEY_ALLOWED_PACKAGES = "focus_allowed_packages"
@@ -49,6 +53,17 @@ object FocusTimeManager {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
+    // Wall time is used only for reboot/legacy recovery. During one boot, changing
+    // the clock cannot shorten or prolong a direct duration-based focus session.
+    private fun directRemainingMillis(context: Context): Long {
+        val prefs = getPrefs(context)
+        val boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
+        val elapsedEnd = prefs.getLong(KEY_END_ELAPSED, 0L)
+        return if (boot >= 0 && prefs.getInt(KEY_START_BOOT, -2) == boot && elapsedEnd > 0) {
+            (elapsedEnd - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        } else (prefs.getLong(KEY_END_EPOCH, 0L) - System.currentTimeMillis()).coerceAtLeast(0L)
+    }
+
     fun init(context: Context) {
         checkStatus(context)
     }
@@ -59,17 +74,18 @@ object FocusTimeManager {
     fun checkStatus(context: Context): Boolean {
         val prefs = getPrefs(context)
         val endEpoch = prefs.getLong(KEY_END_EPOCH, 0L)
-        val now = System.currentTimeMillis()
+        val remaining = directRemainingMillis(context)
 
-        if (endEpoch > now) {
+        if (remaining > 0) {
             _isFocusActiveFlow.value = true
-            _remainingSecondsFlow.value = (endEpoch - now) / 1000L
+            _remainingSecondsFlow.value = remaining / 1000L
             return true
         } else if (endEpoch > 0L) {
             // Direct focus session expired
             prefs.edit()
                 .putBoolean(KEY_IS_ACTIVE, false)
                 .putLong(KEY_END_EPOCH, 0L)
+            .remove(KEY_END_ELAPSED).remove(KEY_START_BOOT)
                 .putString(KEY_ACTIVE_ROUTINE_NAME, "")
                 .apply()
         }
@@ -95,10 +111,8 @@ object FocusTimeManager {
         checkStatus(context)
         val prefs = getPrefs(context)
         val endEpoch = prefs.getLong(KEY_END_EPOCH, 0L)
-        val now = System.currentTimeMillis()
-        if (endEpoch > now) {
-            return (endEpoch - now) / 1000L
-        }
+        val remaining = directRemainingMillis(context)
+        if (remaining > 0) return remaining / 1000L
         val activeRoutine = findActiveRoutine(context)
         if (activeRoutine != null) {
             return calculateRoutineRemainingSeconds(activeRoutine)
@@ -121,10 +135,10 @@ object FocusTimeManager {
     fun getEndTimeFormatted(context: Context): String {
         val prefs = getPrefs(context)
         val endEpoch = prefs.getLong(KEY_END_EPOCH, 0L)
-        val now = System.currentTimeMillis()
-        if (endEpoch > now) {
+        val remaining = directRemainingMillis(context)
+        if (remaining > 0) {
             val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
-            return sdf.format(Date(endEpoch))
+            return sdf.format(Date(System.currentTimeMillis() + remaining))
         }
 
         val activeRoutine = findActiveRoutine(context)
@@ -158,6 +172,8 @@ object FocusTimeManager {
         prefs.edit()
             .putBoolean(KEY_IS_ACTIVE, true)
             .putLong(KEY_END_EPOCH, endEpoch)
+            .putLong(KEY_END_ELAPSED, SystemClock.elapsedRealtime() + safeDuration * 60_000L)
+            .putInt(KEY_START_BOOT, Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1))
             .putInt(KEY_TOTAL_MINUTES, safeDuration)
             .putString(KEY_ACTIVE_ROUTINE_NAME, routineName ?: "Focus Time")
             .putStringSet(KEY_ALLOWED_PACKAGES, safeAllowed.toSet())
@@ -180,6 +196,7 @@ object FocusTimeManager {
         prefs.edit()
             .putBoolean(KEY_IS_ACTIVE, false)
             .putLong(KEY_END_EPOCH, 0L)
+            .remove(KEY_END_ELAPSED).remove(KEY_START_BOOT)
             .putString(KEY_ACTIVE_ROUTINE_NAME, "")
             .apply()
         _isFocusActiveFlow.value = false
@@ -191,6 +208,11 @@ object FocusTimeManager {
      * Retrieves the emergency allowed packages saved by the user (max 3 apps).
      */
     fun getAllowedPackages(context: Context): List<String> {
+        // Routine permissions belong only to the currently active routine. Never cache
+        // them as the user's default/direct-session list across schedule transitions.
+        if (directRemainingMillis(context) <= 0) {
+            findActiveRoutine(context)?.let { return it.allowedPackages.distinct().take(3) }
+        }
         val cached = cachedAllowedList
         if (cached != null) return cached
 
@@ -215,7 +237,7 @@ object FocusTimeManager {
         }
 
         val endEpoch = prefs.getLong(KEY_END_EPOCH, 0L)
-        if (endEpoch > System.currentTimeMillis()) {
+        if (directRemainingMillis(context) > 0) {
             val set = prefs.getStringSet(KEY_ALLOWED_PACKAGES, emptySet()) ?: emptySet()
             if (set.isNotEmpty()) {
                 val result = set.take(3)
@@ -223,13 +245,6 @@ object FocusTimeManager {
                 cachedAllowedSet = result.toSet()
                 return result
             }
-        }
-        val activeRoutine = findActiveRoutine(context)
-        if (activeRoutine != null && activeRoutine.allowedPackages.isNotEmpty()) {
-            val result = activeRoutine.allowedPackages.distinct().take(3)
-            cachedAllowedList = result
-            cachedAllowedSet = result.toSet()
-            return result
         }
         val fallbackSet = prefs.getStringSet(KEY_ALLOWED_PACKAGES, emptySet()) ?: emptySet()
         val result = fallbackSet.take(3)
@@ -242,11 +257,7 @@ object FocusTimeManager {
      * Set representation for O(1) membership check during accessibility service events.
      */
     fun getAllowedPackagesSet(context: Context): Set<String> {
-        val cached = cachedAllowedSet
-        if (cached != null) return cached
-        val set = getAllowedPackages(context).toSet()
-        cachedAllowedSet = set
-        return set
+        return getAllowedPackages(context).toSet()
     }
 
     fun setEmergencyAllowedPackages(context: Context, packages: List<String>) {
@@ -263,26 +274,12 @@ object FocusTimeManager {
             .apply()
     }
 
-    @Volatile
-    private var lastAllowedLaunchedPackage: String? = null
-    @Volatile
-    private var lastAllowedLaunchEpoch: Long = 0L
-
-    fun notifyAllowedAppLaunched(packageName: String) {
-        lastAllowedLaunchedPackage = packageName
-        lastAllowedLaunchEpoch = System.currentTimeMillis()
-    }
+    // Launching an app never grants an exception beyond the active policy.
+    fun notifyAllowedAppLaunched(packageName: String) = Unit
 
     fun isPackageAllowed(context: Context, packageName: String): Boolean {
         if (PhoneAppHelper.isPhoneDialerApp(context, packageName)) return true
-        if (getAllowedPackagesSet(context).contains(packageName)) return true
-        val activeRoutine = findActiveRoutine(context)
-        if (activeRoutine != null && activeRoutine.allowedPackages.contains(packageName)) return true
-        val now = System.currentTimeMillis()
-        if (lastAllowedLaunchedPackage == packageName && (now - lastAllowedLaunchEpoch < 120000L)) {
-            return true
-        }
-        return false
+        return packageName in getAllowedPackagesSet(context)
     }
 
     /**

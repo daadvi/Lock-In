@@ -1,8 +1,5 @@
 package com.example.ui.animation
 
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
@@ -98,6 +95,7 @@ fun Modifier.tactilePress(
     scaleDown: Float = 0.96f,
     onClick: (() -> Unit)? = null
 ): Modifier = composed {
+    val context = LocalContext.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -114,7 +112,10 @@ fun Modifier.tactilePress(
         mod.clickable(
             interactionSource = interactionSource,
             indication = ripple(color = Color.Black.copy(alpha = 0.15f)),
-            onClick = onClick
+            onClick = {
+                com.example.util.AppHaptics.tap(context)
+                onClick()
+            }
         )
     } else {
         mod
@@ -203,17 +204,7 @@ fun CmfSlideActionButton(
         label = "chevron_alpha"
     )
 
-    fun triggerHapticFeedback() {
-        try {
-            val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? Vibrator
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createOneShot(35, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(35)
-            }
-        } catch (_: Exception) {}
-    }
+    fun triggerHapticFeedback() = com.example.util.AppHaptics.tap(context)
 
     BoxWithConstraints(
         modifier = modifier
@@ -412,17 +403,7 @@ fun CmfAnalogLever(
     val closestIndex = stepsList.indexOfFirst { it >= currentMinutes }.let { if (it == -1) stepsList.size - 1 else it }
     var selectedIndex by remember(currentMinutes) { mutableStateOf(closestIndex) }
 
-    fun triggerTick() {
-        try {
-            val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? Vibrator
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createOneShot(15, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(15)
-            }
-        } catch (_: Exception) {}
-    }
+    fun triggerTick() = com.example.util.AppHaptics.tap(context)
 
     Box(
         modifier = modifier

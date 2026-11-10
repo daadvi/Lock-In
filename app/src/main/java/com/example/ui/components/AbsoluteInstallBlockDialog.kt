@@ -39,7 +39,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -93,6 +92,8 @@ fun AbsoluteInstallBlockDialog(
     val isDark = LocalIsDarkTheme.current
     val app = com.example.LockInApplication.instance
     val userPrefs = app.userPreferences
+    val currentLockLevel by userPrefs.lockLevel.collectAsState()
+    val targetPassCount = currentLockLevel.passwordRepeatCount
 
     val quickBypassesRemaining by userPrefs.absoluteBlockQuickBypassesRemaining.collectAsState()
     val cardBg = if (isDark) Color(0xFF18181B) else CmfWhite
@@ -101,7 +102,7 @@ fun AbsoluteInstallBlockDialog(
     val borderColor = if (isDark) Color(0xFF27272A) else CmfBorder
 
     // Deactivation Challenge States
-    var deactivationStage by remember { mutableIntStateOf(1) } // 1: 5 Passwords, 2: Long Phrase, 3: 8-char Email Code
+    var deactivationStage by remember { mutableIntStateOf(1) } // 1: Passwords according to lock level, 2: Long Phrase, 3: 8-char Email Code
     var successfulPassCount by remember { mutableIntStateOf(0) }
     var passwordInput by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
@@ -261,7 +262,7 @@ fun AbsoluteInstallBlockDialog(
                             )
 
                             Text(
-                                text = "• Caso tenha ativado por engano ou para testar, você terá 2 desativações rápidas sem complicação.\n\n• Ao esgotar as 2 tentativas de teste, para desativar este modo será OBRIGATÓRIO digitar sua senha 5 vezes seguidas sem errar, digitar uma frase motivacional extensa e digitar uma chave de 8 caracteres enviada para o seu e-mail (sem poder copiar e colar).",
+                                text = "• Caso tenha ativado por engano ou para testar, você terá 2 desativações rápidas sem complicação.\n\n• Ao esgotar as 2 tentativas de teste, para desativar este modo será OBRIGATÓRIO digitar sua senha $targetPassCount vez${if (targetPassCount > 1) "es seguidas" else ""} sem errar, digitar uma frase motivacional extensa e digitar uma chave de 8 caracteres enviada para o seu e-mail (sem poder copiar e colar).",
                                 fontSize = 11.5.sp,
                                 color = subtextColor,
                                 lineHeight = 17.sp
@@ -389,7 +390,7 @@ fun AbsoluteInstallBlockDialog(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.Center
                                 ) {
-                                    val stages = listOf("1. SENHA 5X", "2. FRASE EXTENSA", "3. E-MAIL 8 DÍGITOS")
+                                    val stages = listOf("1. SENHA ${targetPassCount}X", "2. FRASE EXTENSA", "3. E-MAIL 8 DÍGITOS")
                                     stages.forEachIndexed { index, label ->
                                         val stageNum = index + 1
                                         val isDone = deactivationStage > stageNum
@@ -419,9 +420,9 @@ fun AbsoluteInstallBlockDialog(
 
                                 when (deactivationStage) {
                                     1 -> {
-                                        // Stage 1: Password 5x without error
+                                        // Stage 1: Consecutive passwords according to the saved lock level
                                         Text(
-                                            text = "ETAPA 1: DIGITE A SENHA 5 VEZES CONSECUTIVAS (${successfulPassCount + 1}/5)",
+                                            text = "ETAPA 1: DIGITE A SENHA $targetPassCount VEZ${if (targetPassCount > 1) "ES CONSECUTIVAS" else ""} (${successfulPassCount + 1}/$targetPassCount)",
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Black,
                                             fontFamily = FontFamily.Monospace,
@@ -437,7 +438,7 @@ fun AbsoluteInstallBlockDialog(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.Center
                                         ) {
-                                            for (i in 0 until 5) {
+                                            for (i in 0 until targetPassCount) {
                                                 Box(
                                                     modifier = Modifier
                                                         .padding(horizontal = 4.dp)
@@ -470,7 +471,7 @@ fun AbsoluteInstallBlockDialog(
                                             }
                                         }
 
-                                        OutlinedTextField(
+                                        ManualEntryTextField(
                                             value = passwordInput,
                                             onValueChange = { newVal ->
                                                 if (!isManualTyping(passwordInput, newVal)) {
@@ -480,13 +481,13 @@ fun AbsoluteInstallBlockDialog(
                                                     errorMessage = null
                                                 }
                                             },
-                                            label = { Text("Senha (${successfulPassCount + 1} de 5)") },
+                                            label = { Text("Senha (${successfulPassCount + 1} de $targetPassCount)") },
                                             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                                             keyboardActions = KeyboardActions(onDone = {
                                                 if (userPrefs.verifyTrustPassword(passwordInput)) {
                                                     val next = successfulPassCount + 1
-                                                    if (next >= 5) {
+                                                    if (next >= targetPassCount) {
                                                         successfulPassCount = next
                                                         deactivationStage = 2
                                                         passwordInput = ""
@@ -527,7 +528,7 @@ fun AbsoluteInstallBlockDialog(
                                             onClick = {
                                                 if (userPrefs.verifyTrustPassword(passwordInput)) {
                                                     val next = successfulPassCount + 1
-                                                    if (next >= 5) {
+                                                    if (next >= targetPassCount) {
                                                         successfulPassCount = next
                                                         deactivationStage = 2
                                                         passwordInput = ""
@@ -548,8 +549,8 @@ fun AbsoluteInstallBlockDialog(
                                             shape = RoundedCornerShape(10.dp)
                                         ) {
                                             Text(
-                                                text = if (successfulPassCount + 1 >= 5) "CONCLUIR SENHAS E IR PARA A FRASE"
-                                                else "CONFIRMAR SENHA (${successfulPassCount + 1}/5)",
+                                                text = if (successfulPassCount + 1 >= targetPassCount) "CONCLUIR SENHAS E IR PARA A FRASE"
+                                                else "CONFIRMAR SENHA (${successfulPassCount + 1}/$targetPassCount)",
                                                 fontWeight = FontWeight.Bold,
                                                 fontFamily = FontFamily.Monospace,
                                                 fontSize = 11.sp,
@@ -568,7 +569,7 @@ fun AbsoluteInstallBlockDialog(
                                             color = Color(0xFFEF4444)
                                         )
                                         Text(
-                                            text = "Digite exatamente a frase abaixo sem errar (cópia e colagem proibida):",
+                                            text = "Digite a frase manualmente. Maiúsculas e minúsculas são aceitas; colagem proibida:",
                                             fontSize = 11.sp,
                                             color = subtextColor
                                         )
@@ -590,10 +591,10 @@ fun AbsoluteInstallBlockDialog(
                                             )
                                         }
 
-                                        OutlinedTextField(
+                                        ManualEntryTextField(
                                             value = phraseInput,
                                             onValueChange = { newVal ->
-                                                if (!isManualTyping(phraseInput, newVal, maxBurst = 3)) {
+                                                if (!isManualTyping(phraseInput, newVal)) {
                                                     errorMessage = "Cópia e colagem não são permitidas! Digite a frase manualmente."
                                                 } else {
                                                     phraseInput = newVal
@@ -652,10 +653,10 @@ fun AbsoluteInstallBlockDialog(
                                             lineHeight = 15.sp
                                         )
 
-                                        OutlinedTextField(
+                                        ManualEntryTextField(
                                             value = emailCodeInput,
                                             onValueChange = { newVal ->
-                                                if (!isManualTyping(emailCodeInput, newVal, maxBurst = 1)) {
+                                                if (!isManualTyping(emailCodeInput, newVal)) {
                                                     errorMessage = "Cópia e colagem não são permitidas! Digite o código caractere por caractere."
                                                 } else {
                                                     emailCodeInput = newVal.uppercase().take(8)

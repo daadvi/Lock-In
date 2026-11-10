@@ -432,24 +432,27 @@ object LimitTimerManager {
         }
     }
 
-    private suspend fun saveRemainingTime(seconds: Long) {
+    private suspend fun saveRemainingTime(
+        seconds: Long,
+        state: ActiveSessionState = _sessionState.value,
+        group: AppGroupEntity? = currentGroup,
+        appEntity: RestrictedAppEntity? = currentApp,
+        webEntity: RestrictedWebsiteEntity? = currentWebsite
+    ) {
         val app = LockInApplication.instance
         val prefs = app.userPreferences
         val db = app.repository
-        val state = _sessionState.value
 
-        val group = currentGroup
         if (group != null) {
             val updatedGroup = group.copy(
                 remainingSeconds = seconds,
                 isBlocked = seconds <= 0
             )
             db.updateAppGroup(updatedGroup)
-            currentGroup = updatedGroup
+            if (currentGroup === group) currentGroup = updatedGroup
             return
         }
 
-        val appEntity = currentApp
         if (appEntity != null && appEntity.isLimited) {
             val updated = if (!appEntity.useAbsoluteTime && state.isShortVideo) {
                 val totalRemaining = seconds + appEntity.longVideoRemainingSeconds
@@ -480,7 +483,7 @@ object LimitTimerManager {
                 )
             }
             db.updateApp(updated)
-            currentApp = updated
+            if (currentApp === appEntity) currentApp = updated
 
             if (seconds <= 0) {
                 AppBlockEnforcer.markAppDepleted(updated.packageName)
@@ -500,11 +503,10 @@ object LimitTimerManager {
             }
         }
 
-        val webEntity = currentWebsite
         if (webEntity != null) {
             val updatedWeb = webEntity.copy(remainingSeconds = seconds, isBlocked = seconds <= 0)
             db.updateWebsite(updatedWeb)
-            currentWebsite = updatedWeb
+            if (currentWebsite === webEntity) currentWebsite = updatedWeb
 
             // Bidirectional sync: update corresponding app if linked
             val linkedPkg = webEntity.linkedPackageName
@@ -529,11 +531,14 @@ object LimitTimerManager {
         timerJob = null
     }
 
-    fun stopTimer(context: Context) {
+    internal fun stopTimer(context: Context, persistenceScope: CoroutineScope = scope) {
         val current = _sessionState.value
+        val group = currentGroup
+        val app = currentApp
+        val website = currentWebsite
         if (current.isRunning) {
-            scope.launch {
-                saveRemainingTime(current.remainingSeconds)
+            persistenceScope.launch {
+                saveRemainingTime(current.remainingSeconds, current, group, app, website)
             }
         }
         stopTickerOnly()

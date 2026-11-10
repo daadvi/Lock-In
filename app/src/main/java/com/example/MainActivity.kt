@@ -1,5 +1,6 @@
 package com.example
 
+import com.example.ui.tutorial.tutorialTarget
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,7 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,27 +101,29 @@ class MainActivity : ComponentActivity() {
             val userPrefs = app.userPreferences
             val repository = app.repository
 
-            val isRegistered by userPrefs.isRegistered.collectAsState()
-            val userName by userPrefs.userName.collectAsState()
-            val textColorHex by userPrefs.textColorHex.collectAsState()
-            val screenTimeLimitMinutes by com.example.service.ScreenTimeManager.limitMinutesFlow.collectAsState()
-            val screenTimeResetHours by com.example.service.ScreenTimeManager.resetIntervalHoursFlow.collectAsState()
-            val resetIntervalHours by userPrefs.resetIntervalHours.collectAsState()
-            val islandSize by userPrefs.floatingIslandSize.collectAsState()
-            val islandOpacity by userPrefs.floatingIslandOpacity.collectAsState()
-            val islandPosX by userPrefs.floatingIslandPosX.collectAsState()
-            val islandPosY by userPrefs.floatingIslandPosY.collectAsState()
+            val isRegistered by userPrefs.isRegistered.collectAsStateWithLifecycle()
+            // Restoring a backup can mark the account registered before permission setup finishes.
+            var onboardingInProgress by rememberSaveable { mutableStateOf(!isRegistered) }
+            val userName by userPrefs.userName.collectAsStateWithLifecycle()
+            val textColorHex by userPrefs.textColorHex.collectAsStateWithLifecycle()
+            val screenTimeLimitMinutes by com.example.service.ScreenTimeManager.limitMinutesFlow.collectAsStateWithLifecycle()
+            val screenTimeResetHours by com.example.service.ScreenTimeManager.resetIntervalHoursFlow.collectAsStateWithLifecycle()
+            val resetIntervalHours by userPrefs.resetIntervalHours.collectAsStateWithLifecycle()
+            val islandSize by userPrefs.floatingIslandSize.collectAsStateWithLifecycle()
+            val islandOpacity by userPrefs.floatingIslandOpacity.collectAsStateWithLifecycle()
+            val islandPosX by userPrefs.floatingIslandPosX.collectAsStateWithLifecycle()
+            val islandPosY by userPrefs.floatingIslandPosY.collectAsStateWithLifecycle()
 
-            val themeMode by userPrefs.themeMode.collectAsState()
-            val hapticFeedback by userPrefs.hapticFeedback.collectAsState()
-            val streakReminders by userPrefs.streakReminders.collectAsState()
-            val preLimitAlerts by userPrefs.preLimitAlerts.collectAsState()
-            val mindfulDelay by userPrefs.mindfulDelay.collectAsState()
-            val strictMode by userPrefs.strictMode.collectAsState()
+            val themeMode by userPrefs.themeMode.collectAsStateWithLifecycle()
+            val hapticFeedback by userPrefs.hapticFeedback.collectAsStateWithLifecycle()
+            val streakReminders by userPrefs.streakReminders.collectAsStateWithLifecycle()
+            val preLimitAlerts by userPrefs.preLimitAlerts.collectAsStateWithLifecycle()
+            val mindfulDelay by userPrefs.mindfulDelay.collectAsStateWithLifecycle()
+            val strictMode by userPrefs.strictMode.collectAsStateWithLifecycle()
 
-            val restrictedApps by repository.getAllAppsFlow().collectAsState(initial = emptyList())
-            val appGroups by repository.getAllAppGroupsFlow().collectAsState(initial = emptyList())
-            val restrictedWebsites by repository.getAllWebsitesFlow().collectAsState(initial = emptyList())
+            val restrictedApps by remember(repository) { repository.getAllAppsFlow() }.collectAsStateWithLifecycle(initialValue = emptyList())
+            val appGroups by remember(repository) { repository.getAllAppGroupsFlow() }.collectAsStateWithLifecycle(initialValue = emptyList())
+            val restrictedWebsites by remember(repository) { repository.getAllWebsitesFlow() }.collectAsStateWithLifecycle(initialValue = emptyList())
 
             val openTab = intent?.getStringExtra(com.example.widget.LockInWidgetManager.EXTRA_OPEN_TAB)
             val openScreen = intent?.getStringExtra("OPEN_SCREEN")
@@ -181,15 +184,27 @@ class MainActivity : ComponentActivity() {
                 } catch (_: Exception) {}
             }
 
+            var tutorialReturnScreen by rememberSaveable { mutableStateOf<String?>(null) }
             LockInTheme(customTextColor = customAccentColor, themeMode = themeMode) {
+                com.example.ui.tutorial.TutorialHost(
+                    onStart = { tutorialReturnScreen = currentScreen.name },
+                    onNavigate = { chapter ->
+                        if (isRegistered && !onboardingInProgress) currentScreen = com.example.ui.tutorial.tutorialScreen(chapter)
+                    },
+                    onFinish = {
+                        tutorialReturnScreen?.let { currentScreen = Screen.valueOf(it) }
+                        tutorialReturnScreen = null
+                    }
+                ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (!isRegistered) {
+                    if (!isRegistered || onboardingInProgress) {
                         OnboardingScreen(
                             onCompleteRegistration = { name, password ->
                                 userPrefs.setRegistration(name, password)
+                                onboardingInProgress = false
                                 currentScreen = Screen.DASHBOARD
                             }
                         )
@@ -486,6 +501,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                }
             }
         }
     }
@@ -542,8 +558,8 @@ private fun DashboardScreenContainer(
     onUpdateResetIntervalHours: (Int) -> Unit,
     onResetScreenTimeNow: () -> Unit
 ) {
-    val screenTimeRemainingSeconds by com.example.service.ScreenTimeManager.remainingSecondsFlow.collectAsState()
-    val isScreenTimeLockout by com.example.service.ScreenTimeManager.isLockoutActiveFlow.collectAsState()
+    val screenTimeRemainingSeconds by com.example.service.ScreenTimeManager.remainingSecondsFlow.collectAsStateWithLifecycle()
+    val isScreenTimeLockout by com.example.service.ScreenTimeManager.isLockoutActiveFlow.collectAsStateWithLifecycle()
 
     DashboardScreen(
         userName = userName,

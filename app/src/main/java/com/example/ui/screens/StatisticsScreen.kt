@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.ui.tutorial.tutorialTarget
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
@@ -57,7 +58,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -89,14 +94,8 @@ import com.example.ui.components.AppIconImage
 import com.example.ui.components.DotMatrixPattern
 import com.example.ui.components.NothingCard
 import com.example.ui.theme.BlockyFontFamily
-import com.example.ui.theme.CmfBorder
-import com.example.ui.theme.CmfDark
-import com.example.ui.theme.CmfLightGray
-import com.example.ui.theme.CmfMutedText
-import com.example.ui.theme.CmfWhite
 import com.example.ui.theme.LocalCustomTextColor
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 import kotlin.math.cos
@@ -125,9 +124,10 @@ fun StatisticsScreen(
     onBack: () -> Unit
 ) {
     val accentColor = LocalCustomTextColor.current
+    val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
 
-    val streakDays by StreakManager.streakFlow.collectAsState()
+    val streakDays by StreakManager.streakFlow.collectAsStateWithLifecycle()
     val recordStreak = remember(streakDays) { StreakManager.getRecordStreak(context) }
 
     var selectedPeriod by remember { mutableStateOf(StatsPeriod.DAY) }
@@ -146,31 +146,40 @@ fun StatisticsScreen(
     var deviceStats by remember { mutableStateOf<DeviceStatsResult?>(null) }
     var isLoadingStats by remember { mutableStateOf(true) }
 
-    // Polling permission state in case user returns from system settings
-    LaunchedEffect(Unit) {
-        while (true) {
-            val granted = DeviceUsageStatsHelper.hasUsageAccessPermission(context)
-            if (granted != hasUsagePermission) {
-                hasUsagePermission = granted
+    // Permission changes occur in system settings: refresh on return instead of polling indefinitely.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasUsagePermission = DeviceUsageStatsHelper.hasUsageAccessPermission(context)
             }
-            delay(1500L)
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Timer persistence changes remaining seconds frequently; usage queries only need these fields.
+    val statsApps = remember(limitedApps) {
+        limitedApps.map { RestrictedAppEntity(
+            packageName = it.packageName, appName = it.appName,
+            isLimited = it.isLimited, individualLimitMinutes = it.individualLimitMinutes
+        ) }
     }
 
     // Query real device stats whenever period, offset, permission, or install filter mode changes
-    LaunchedEffect(selectedPeriod, periodOffset, limitedApps, hasUsagePermission, installFilterMode) {
+    LaunchedEffect(selectedPeriod, periodOffset, statsApps, hasUsagePermission, installFilterMode) {
         isLoadingStats = true
-        withContext(Dispatchers.IO) {
-            val result = DeviceUsageStatsHelper.queryDeviceStats(
+        val result = withContext(Dispatchers.IO) {
+            DeviceUsageStatsHelper.queryDeviceStats(
                 context = context,
                 period = selectedPeriod,
                 offset = periodOffset,
-                restrictedApps = limitedApps,
+                restrictedApps = statsApps,
                 filterMode = installFilterMode
             )
-            deviceStats = result
-            isLoadingStats = false
         }
+        deviceStats = result
+        isLoadingStats = false
     }
 
     val chartBars = deviceStats?.chartBars ?: emptyList()
@@ -221,11 +230,11 @@ fun StatisticsScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(18.dp))
-                            .background(Color(0xFFF0F0F3))
-                            .border(1.dp, Color(0xFFE2E2E6), RoundedCornerShape(18.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(18.dp))
                             .clickable { showStreakModal = true }
                             .padding(horizontal = 10.dp, vertical = 6.dp)
-                            .testTag("stats_streak_top_left_button")
+                            .testTag("stats_streak_top_left_button").tutorialTarget("streak")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -242,14 +251,14 @@ fun StatisticsScreen(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Black,
                                 fontFamily = FontFamily.Monospace,
-                                color = CmfDark
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = "STREAK",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
-                                color = CmfMutedText
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -270,20 +279,27 @@ fun StatisticsScreen(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFFF0F0F3))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
                             .testTag("stats_back_button")
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Voltar",
-                            tint = CmfDark,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(18.dp)
                         )
                     }
                 }
 
+                val tutorial = com.example.ui.tutorial.LocalTutorialController.current
+                val tutorialListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                LaunchedEffect(tutorial?.target) {
+                    val index = when(tutorial?.target) { "statistics" -> 1; "adherence" -> 4; else -> null }
+                    if (index != null) tutorialListState.scrollToItem(index + if (hasUsagePermission) 0 else 1)
+                }
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    state = tutorialListState,
+                    modifier = Modifier.fillMaxSize().testTag("stats_content"),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Usage Stats Permission Banner if not granted yet on device
@@ -297,7 +313,7 @@ fun StatisticsScreen(
                                     Text(
                                         text = "Para que o Lock In leia e exiba o tempo de tela real do seu aparelho e o uso exato dos aplicativos, conceda a permissão de Acesso de Uso no sistema Android.",
                                         fontSize = 11.sp,
-                                        color = CmfMutedText,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         lineHeight = 16.sp
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
@@ -342,7 +358,7 @@ fun StatisticsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0xFFEBEBF0))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .padding(4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -363,13 +379,13 @@ fun StatisticsScreen(
                                         fontWeight = FontWeight.Black,
                                         fontFamily = FontFamily.Monospace,
                                         letterSpacing = 1.sp,
-                                        color = if (isBefore) Color.White else Color(0xFF6A6A70)
+                                        color = if (isBefore) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
                                         text = "Antes do Lock in",
                                         fontSize = 8.sp,
                                         fontFamily = FontFamily.Monospace,
-                                        color = if (isBefore) Color.LightGray else Color(0xFF8E8E93)
+                                        color = if (isBefore) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f) else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -391,13 +407,13 @@ fun StatisticsScreen(
                                         fontWeight = FontWeight.Black,
                                         fontFamily = FontFamily.Monospace,
                                         letterSpacing = 1.sp,
-                                        color = if (isAfter) Color.White else Color(0xFF6A6A70)
+                                        color = if (isAfter) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
                                         text = "A partir da instalação",
                                         fontSize = 8.sp,
                                         fontFamily = FontFamily.Monospace,
-                                        color = if (isAfter) Color.White.copy(alpha = 0.9f) else Color(0xFF8E8E93)
+                                        color = if (isAfter) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -410,8 +426,9 @@ fun StatisticsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(24.dp))
-                                .background(CmfWhite)
-                                .border(1.dp, CmfBorder, RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .testTag("stats_chart_card").tutorialTarget("statistics")
+                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp))
                                 .padding(top = 22.dp, bottom = 14.dp, start = 16.dp, end = 16.dp)
                         ) {
                             Column(
@@ -449,7 +466,7 @@ fun StatisticsScreen(
                                             } else 0.08f
 
                                             val animatedBarColor by animateColorAsState(
-                                                targetValue = if (isSelected) accentColor else Color(0xFF2B2B2E),
+                                                targetValue = if (isSelected) accentColor else colors.onSurfaceVariant.copy(alpha = 0.65f),
                                                 label = "bar_color_$idx"
                                             )
 
@@ -485,7 +502,7 @@ fun StatisticsScreen(
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace,
                                     letterSpacing = 1.sp,
-                                    color = CmfDark,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     textAlign = TextAlign.Center
                                 )
                             }
@@ -498,8 +515,8 @@ fun StatisticsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFFF3F3F5))
-                                .border(1.dp, Color(0xFFE2E2E6), RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
                                 .padding(horizontal = 6.dp, vertical = 4.dp)
                         ) {
                             Row(
@@ -517,7 +534,7 @@ fun StatisticsScreen(
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                         contentDescription = "Anterior",
-                                        tint = CmfDark
+                                        tint = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
 
@@ -527,7 +544,7 @@ fun StatisticsScreen(
                                     fontWeight = FontWeight.Black,
                                     fontFamily = FontFamily.Monospace,
                                     letterSpacing = 1.5.sp,
-                                    color = CmfDark
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
 
                                 IconButton(
@@ -543,7 +560,7 @@ fun StatisticsScreen(
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                         contentDescription = "Próximo",
-                                        tint = if (periodOffset < 0) CmfDark else Color.LightGray
+                                        tint = if (periodOffset < 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                                     )
                                 }
                             }
@@ -556,8 +573,8 @@ fun StatisticsScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0xFFF3F3F5))
-                                .border(1.dp, Color(0xFFE2E2E6), RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
                                 .padding(4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -568,7 +585,7 @@ fun StatisticsScreen(
                                     label = "period_tab_bg_${period.name}"
                                 )
                                 val tabText by animateColorAsState(
-                                    targetValue = if (isSelected) Color.White else Color(0xFF6A6A70),
+                                    targetValue = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                     label = "period_tab_text_${period.name}"
                                 )
 
@@ -633,7 +650,7 @@ fun StatisticsScreen(
 
                                 // Donut Gauge Container
                                 Box(
-                                    modifier = Modifier.size(154.dp),
+                                    modifier = Modifier.size(154.dp).testTag("stats_adherence_gauge").tutorialTarget("adherence"),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     val animatedProgress by animateFloatAsState(
@@ -648,8 +665,8 @@ fun StatisticsScreen(
                                         val outerRadius = radius + strokeWidth / 2f
                                         val innerRadius = radius - strokeWidth / 2f
 
-                                        val trackColor = Color(0xFFE5E5EB)
-                                        val outlineColor = Color(0xFFD6D6DE)
+                                        val trackColor = colors.surfaceVariant
+                                        val outlineColor = colors.outline
 
                                         // 1. Base Donut Track (full 360 ring)
                                         drawCircle(
@@ -689,7 +706,7 @@ fun StatisticsScreen(
 
                                         // 4. Clean inner hole fill
                                         drawCircle(
-                                            color = Color.White,
+                                            color = colors.surface,
                                             radius = innerRadius - 1f,
                                             center = center
                                         )
@@ -719,7 +736,7 @@ fun StatisticsScreen(
                                                 fontSize = 32.sp,
                                                 fontWeight = FontWeight.Black,
                                                 fontFamily = FontFamily.Monospace,
-                                                color = CmfDark,
+                                                color = MaterialTheme.colorScheme.onSurface,
                                                 letterSpacing = (-1).sp
                                             )
                                             Text(
@@ -737,7 +754,7 @@ fun StatisticsScreen(
                                             fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Black,
                                             letterSpacing = 1.sp,
-                                            color = CmfMutedText
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
@@ -780,7 +797,7 @@ fun StatisticsScreen(
                                     },
                                     fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    color = CmfMutedText,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center,
                                     lineHeight = 15.sp,
                                     modifier = Modifier.padding(horizontal = 16.dp)
@@ -801,7 +818,7 @@ fun StatisticsScreen(
                                 subValue = "Uso real no aparelho",
                                 icon = Icons.Default.Timer,
                                 accentColor = accentColor,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).testTag("stats_screen_time_tile")
                             )
 
                             StatMiniBox(
@@ -810,7 +827,7 @@ fun StatisticsScreen(
                                 subValue = "Longe de distrações",
                                 icon = Icons.Default.Shield,
                                 accentColor = accentColor,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).testTag("stats_saved_time_tile")
                             )
                         }
                     }
@@ -822,7 +839,7 @@ fun StatisticsScreen(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
-                            color = CmfMutedText,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             letterSpacing = 0.5.sp
                         )
                     }
@@ -832,7 +849,7 @@ fun StatisticsScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(CmfLightGray.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                                     .padding(18.dp),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -840,7 +857,7 @@ fun StatisticsScreen(
                                     text = if (!hasUsagePermission) "Permissão de uso pendente para listar apps." else "Nenhum aplicativo utilizado no período selecionado.",
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    color = CmfMutedText,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
                                 )
                             }
@@ -857,8 +874,8 @@ fun StatisticsScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(CmfWhite)
-                                    .border(1.dp, CmfBorder, RoundedCornerShape(14.dp))
+                                    .background(MaterialTheme.colorScheme.surface)
+                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
                                     .padding(12.dp)
                             ) {
                                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -882,7 +899,7 @@ fun StatisticsScreen(
                                                     text = app.appName,
                                                     fontSize = 13.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = CmfDark,
+                                                    color = MaterialTheme.colorScheme.onSurface,
                                                     maxLines = 1
                                                 )
                                                 if (app.isRestricted) {
@@ -906,7 +923,7 @@ fun StatisticsScreen(
                                             fontSize = 11.sp,
                                             fontFamily = FontFamily.Monospace,
                                             fontWeight = FontWeight.Bold,
-                                            color = if (app.isRestricted && usedMin >= app.limitMinutes) accentColor else CmfDark
+                                            color = if (app.isRestricted && usedMin >= app.limitMinutes) accentColor else MaterialTheme.colorScheme.onSurface
                                         )
                                     }
 
@@ -917,14 +934,14 @@ fun StatisticsScreen(
                                                 .fillMaxWidth()
                                                 .height(5.dp)
                                                 .clip(RoundedCornerShape(3.dp))
-                                                .background(CmfLightGray)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                         ) {
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxWidth(progress)
                                                     .fillMaxHeight()
                                                     .clip(RoundedCornerShape(3.dp))
-                                                    .background(if (usedMin >= app.limitMinutes) accentColor else CmfDark)
+                                                    .background(if (usedMin >= app.limitMinutes) accentColor else MaterialTheme.colorScheme.onSurface)
                                             )
                                         }
                                     }
@@ -992,7 +1009,7 @@ private fun StreakDetailModal(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
-                    color = CmfMutedText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     letterSpacing = 1.sp
                 )
 
@@ -1005,8 +1022,8 @@ private fun StreakDetailModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFF5F5F7))
-                            .border(1.dp, Color(0xFFE2E2E6), RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
                             .padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -1055,7 +1072,7 @@ private fun StreakDetailModal(
                             text = "A sequência foi quebrada. Nenhum dia ativo no momento.",
                             fontSize = 9.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = CmfMutedText,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
                         )
                     }
@@ -1065,8 +1082,8 @@ private fun StreakDetailModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFF5F5F7))
-                            .border(1.dp, Color(0xFFE2E2E6), RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
                             .padding(12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -1075,7 +1092,7 @@ private fun StreakDetailModal(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace,
-                            color = CmfMutedText,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             letterSpacing = 0.5.sp
                         )
 
@@ -1127,7 +1144,7 @@ private fun StreakDetailModal(
                                 text = "1º DIA",
                                 fontSize = 8.sp,
                                 fontFamily = FontFamily.Monospace,
-                                color = CmfMutedText
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = "RECORDE: $recordStreak DIAS",
@@ -1140,7 +1157,7 @@ private fun StreakDetailModal(
                                 text = "HOJE ($streakDays)",
                                 fontSize = 8.sp,
                                 fontFamily = FontFamily.Monospace,
-                                color = CmfMutedText
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -1153,7 +1170,7 @@ private fun StreakDetailModal(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFEFEFF2))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                         .padding(12.dp)
                 ) {
                     Column {
@@ -1170,7 +1187,7 @@ private fun StreakDetailModal(
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
-                                color = CmfDark
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
@@ -1178,7 +1195,7 @@ private fun StreakDetailModal(
                             text = "Seu streak aumenta automaticamente a cada dia em que você respeita seus limites de foco sem utilizar o Desbloqueio de Confiança. Se você burlar com a senha de segurança, o streak zera automaticamente. Sem atalhos, apenas disciplina pura.",
                             fontSize = 10.sp,
                             lineHeight = 15.sp,
-                            color = CmfMutedText
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -1199,8 +1216,8 @@ private fun StatMiniBox(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
-            .background(CmfWhite)
-            .border(1.dp, CmfBorder, RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
             .padding(12.dp)
     ) {
         Column {
@@ -1214,7 +1231,7 @@ private fun StatMiniBox(
                     fontSize = 8.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
-                    color = CmfMutedText
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Icon(
                     imageVector = icon,
@@ -1229,13 +1246,13 @@ private fun StatMiniBox(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Black,
                 fontFamily = FontFamily.Monospace,
-                color = CmfDark
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = subValue,
                 fontSize = 9.sp,
-                color = CmfMutedText
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

@@ -11,7 +11,7 @@ class LockInFocusWidget : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        LockInWidgetManager.updateFocusWidgets(context, appWidgetManager, appWidgetIds)
+        LockInWidgetManager.updateAllWidgets(context)
     }
 
     override fun onEnabled(context: Context) {

@@ -1,12 +1,17 @@
 package com.example.ui.components
 
+import com.example.ui.tutorial.tutorialTarget
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +57,7 @@ fun AppBottomDock(
     onNavigate: (Screen) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val items = remember {
         listOf(
             DockNavItem(
@@ -69,13 +75,13 @@ fun AppBottomDock(
             DockNavItem(
                 screen = Screen.STATISTICS,
                 icon = Icons.Default.BarChart,
-                label = "Status",
+                label = "Estatísticas",
                 testTag = "dock_nav_status"
             ),
             DockNavItem(
                 screen = Screen.FRIENDS_PANEL,
                 icon = Icons.Default.Groups,
-                label = "Friends Panel",
+                label = "Amigos",
                 testTag = "dock_nav_friends"
             ),
             DockNavItem(
@@ -94,14 +100,14 @@ fun AppBottomDock(
     }
 
     val isDark = com.example.ui.theme.LocalIsDarkTheme.current
-    val dockBg = if (isDark) Color(0xFF18181C) else Color(0xFFFFFFFF)
-    val dockBorder = if (isDark) Color(0xFF2C2C34) else Color(0xFFE2E2E6)
-    val selectedPillBg = if (isDark) Color(0xFF2E2E36) else CmfDark
-    val unselectedIconColor = if (isDark) Color(0xFF9E9EA8) else Color(0xFF71717A)
+    val dockBg = MaterialTheme.colorScheme.surface
+    val dockBorder = MaterialTheme.colorScheme.outlineVariant
+    val selectedPillBg = accentColor.copy(alpha = if (isDark) 0.18f else 0.12f)
+    val unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant
 
     // Outer floating pill dock with rounded corners and subtle shadow/border
     Box(
-        modifier = modifier
+        modifier = modifier.widthIn(max = 336.dp).tutorialTarget("overview")
             .shadow(
                 elevation = 8.dp,
                 shape = RoundedCornerShape(32.dp),
@@ -114,8 +120,9 @@ fun AppBottomDock(
             .padding(horizontal = 6.dp, vertical = 6.dp)
     ) {
         Row(
+            modifier = Modifier.selectableGroup(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             items.forEach { item ->
                 val isSelected = when (item.screen) {
@@ -128,32 +135,28 @@ fun AppBottomDock(
                     else -> currentScreen == item.screen
                 }
 
-                val animatedPillWidth by animateDpAsState(
-                    targetValue = if (isSelected) 50.dp else 40.dp,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = Spring.StiffnessMediumLow
-                    ),
-                    label = "dock_pill_width_${item.screen}"
-                )
-
                 val animatedBgColor by animateColorAsState(
                     targetValue = if (isSelected) selectedPillBg else Color.Transparent,
                     label = "dock_pill_bg_${item.screen}"
                 )
 
                 val iconTint by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else unselectedIconColor,
+                    targetValue = if (isSelected) accentColor else unselectedIconColor,
                     label = "dock_pill_tint_${item.screen}"
                 )
 
                 Box(
                     modifier = Modifier
-                        .height(44.dp)
-                        .width(animatedPillWidth)
+                        .height(48.dp)
+                        .weight(1f)
                         .clip(RoundedCornerShape(22.dp))
                         .background(animatedBgColor)
-                        .clickable { onNavigate(item.screen) }
+                        .selectable(selected = isSelected, role = Role.Tab, onClick = {
+                            if (currentScreen != item.screen) {
+                                com.example.util.AppHaptics.tap(context)
+                                onNavigate(item.screen)
+                            }
+                        })
                         .testTag(item.testTag),
                     contentAlignment = Alignment.Center
                 ) {
@@ -161,7 +164,7 @@ fun AppBottomDock(
                         imageVector = item.icon,
                         contentDescription = item.label,
                         tint = iconTint,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }

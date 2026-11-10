@@ -1,25 +1,33 @@
 package com.example.ui.screens
 
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import androidx.compose.animation.animateColorAsState
+import com.example.ui.tutorial.tutorialTarget
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material3.MaterialTheme
+import com.example.util.AppHaptics
+import com.example.service.FocusReminder
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,15 +38,28 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.AppBlocking
+import androidx.compose.material.icons.filled.Shop
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
-import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Language
 import com.example.service.DeviceAdminManager
@@ -49,20 +70,16 @@ import com.example.ui.components.WebsiteBlacklistDialog
 import com.example.ui.components.VpnShieldDialog
 import com.example.ui.components.ChangeLockLevelDialog
 import com.example.ui.components.AbsoluteInstallBlockDialog
-import com.example.data.model.LockLevel
 import com.example.service.LockInVpnManager
 import com.example.ui.components.DeviceInstructionsCard
 import com.example.util.DeviceInstructionHelper
 import com.example.ui.components.AccountSyncDialog
-import com.example.ui.components.PasswordRequirementChip
-import com.example.util.PasswordValidator
 import android.content.Intent
-import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.runtime.collectAsState
 import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.HourglassBottom
+import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
@@ -70,12 +87,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Security
-import com.example.ui.components.XiaomiCompatibilityCard
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -85,13 +98,12 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,25 +111,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.ui.components.DotMatrixPattern
 import com.example.ui.components.NothingCard
-import com.example.ui.theme.CmfBorder
-import com.example.ui.theme.CmfDark
-import com.example.ui.theme.CmfLightGray
 import com.example.ui.theme.CmfMutedText
-import com.example.ui.theme.CmfWhite
 import com.example.ui.theme.LocalCustomTextColor
 import com.example.ui.theme.LocalIsDarkTheme
 
@@ -146,13 +149,11 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     val accentColor = LocalCustomTextColor.current
-    val isDarkTheme = LocalIsDarkTheme.current
-    val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
 
     var showNameDialog by remember { mutableStateOf(false) }
     var showInfoDialog by remember { mutableStateOf(false) }
-    var showPasswordDialog by remember { mutableStateOf(false) }
+    var showPasswordDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var showResetDefaultsDialog by remember { mutableStateOf(false) }
     var showPlayStoreBlacklistDialog by remember { mutableStateOf(false) }
     var showWebsiteBlacklistDialog by remember { mutableStateOf(false) }
@@ -167,439 +168,155 @@ fun SettingsScreen(
     var showJuanPabloDialog by remember { mutableStateOf(false) }
 
     val userPrefs = remember { com.example.LockInApplication.instance.userPreferences }
-    val currentLockLevel by userPrefs.lockLevel.collectAsState()
-    val isAbsoluteInstallBlock by userPrefs.isAbsoluteInstallBlock.collectAsState()
+    val currentLockLevel by userPrefs.lockLevel.collectAsStateWithLifecycle()
+    val isAbsoluteInstallBlock by userPrefs.isAbsoluteInstallBlock.collectAsStateWithLifecycle()
 
-    val currentAccount by CloudSyncManager.currentAccount.collectAsState()
+    val currentAccount by CloudSyncManager.currentAccount.collectAsStateWithLifecycle()
 
-    fun triggerHaptic() {
-        if (hapticFeedbackEnabled) {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            try {
-                val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? Vibrator
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator?.vibrate(VibrationEffect.createOneShot(25, VibrationEffect.DEFAULT_AMPLITUDE))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator?.vibrate(25)
-                }
-            } catch (_: Exception) {}
-        }
+    fun triggerHaptic() = AppHaptics.tap(context)
+    fun setHaptic(enabled: Boolean) {
+        onSaveHapticFeedback(enabled)
+        if (enabled) triggerHaptic()
+    }
+    fun setReminder(enabled: Boolean) {
+        triggerHaptic()
+        onSaveStreakReminders(enabled)
     }
 
-    val screenBg = if (isDarkTheme) Color(0xFF101012) else CmfWhite
-    val cardBg = if (isDarkTheme) Color(0xFF18181B) else CmfWhite
-    val textColor = if (isDarkTheme) Color.White else CmfDark
+    var notificationsAllowed by remember { mutableStateOf(FocusReminder.notificationsAllowed(context)) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsAllowed = FocusReminder.notificationsAllowed(context)
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = screenBg
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            DotMatrixPattern(modifier = Modifier.fillMaxSize())
+    val tutorial = com.example.ui.tutorial.LocalTutorialController.current
+    val gridState = rememberLazyGridState()
+    val isBankingPaused by com.example.service.BankingSecurityHelper.isPausedFlow.collectAsStateWithLifecycle()
+    val isVpnRunning by LockInVpnManager.isVpnRunning.collectAsStateWithLifecycle()
+    val vpnBlockedCount by LockInVpnManager.blockedDnsCount.collectAsStateWithLifecycle()
+    var isDeviceAdminActive by remember { mutableStateOf(DeviceAdminManager.isDeviceAdminActive(context)) }
+    DisposableEffect(lifecycle, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) isDeviceAdminActive = DeviceAdminManager.isDeviceAdminActive(context)
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    val detectedProfile = remember { DeviceInstructionHelper.getProfile() }
+    val sections = listOf(
+        "FOCO E ALERTAS" to listOf(
+            SettingsTile("haptic", "Vibração ao tocar", "Retorno suave ao usar os controles.", Icons.Default.Vibration,
+                checked = hapticFeedbackEnabled, onClick = { setHaptic(!hapticFeedbackEnabled) }),
+            SettingsTile("streak", "Lembrete de foco", "Revise sua sequência às 20h. Pausado durante o foco.", Icons.Default.NotificationsActive,
+                checked = streakRemindersEnabled, onClick = { setReminder(!streakRemindersEnabled) }),
+            SettingsTile("pre_limit", "Alerta pré-limite", "Avisos quando faltarem 5 e 2 minutos.", Icons.Default.Timer,
+                checked = preLimitAlertsEnabled, onClick = { triggerHaptic(); onSavePreLimitAlerts(!preLimitAlertsEnabled) }),
+            SettingsTile("mindful", "Pausa consciente", "Respire por 30 segundos antes de desbloquear.", Icons.Default.SelfImprovement,
+                checked = mindfulDelayEnabled, onClick = { triggerHaptic(); onSaveMindfulDelay(!mindfulDelayEnabled) }),
+            SettingsTile("strict", "Modo estrito", "Protege os limites enquanto estiverem em andamento.", Icons.Default.Lock,
+                checked = strictModeEnabled, onClick = { triggerHaptic(); onSaveStrictMode(!strictModeEnabled) })
+        ),
+        "SUA CONTA E APARÊNCIA" to listOf(
+            SettingsTile("name", "Seu nome", userName.ifBlank { "Defina seu nome de foco" }, Icons.Default.Person,
+                onClick = { showNameDialog = true }),
+            SettingsTile("island", "Ilha e cores", "Posição, tamanho, transparência e cor de destaque.", Icons.Default.ColorLens,
+                target = "island", onClick = onNavigateToStyling),
+            SettingsTile("account", "Conta e backup", currentAccount?.email ?: "Salve suas configurações neste aparelho.", Icons.Default.CloudSync,
+                target = "account", onClick = { showAccountSyncDialog = true }),
+            SettingsTile("password", "Senha de confiança", "Alterar senha ou recuperar o acesso.", Icons.Default.Key,
+                target = "password", onClick = { showPasswordDialog = true })
+        ),
+        "BLOQUEIOS E PROTEÇÕES" to listOf(
+            SettingsTile("levels", "Nível de Lock", currentLockLevel.title + " • Regras de desbloqueio.", Icons.Default.Layers,
+                target = "levels", onClick = { showChangeLockLevelDialog = true }),
+            SettingsTile("absolute", "Bloqueio absoluto", if (isAbsoluteInstallBlock) "Ativo • Protege a lista de instalação." else "Reforce o bloqueio da instalação de apps.", Icons.Default.AppBlocking,
+                onClick = { pendingAbsoluteBlockEnable = !isAbsoluteInstallBlock; showAbsoluteBlockDialog = true }),
+            SettingsTile("play_store", "Apps da Play Store", "Escolha os apps cuja instalação será bloqueada.", Icons.Default.Shop,
+                target = "play_store", onClick = { showPlayStoreBlacklistDialog = true }),
+            SettingsTile("websites", "Sites bloqueados", "Gerencie os domínios e sites restritos.", Icons.Default.Language,
+                target = "websites", onClick = { showWebsiteBlacklistDialog = true }),
+            SettingsTile("network", "Filtro de rede", if (isVpnRunning) "Ativo • $vpnBlockedCount bloqueios de DNS hoje." else "Configure o filtro de DNS local.", Icons.Default.Wifi,
+                onClick = { showVpnShieldDialog = true }),
+            SettingsTile("uninstall", "Desinstalação", if (isDeviceAdminActive) "Proteção ativa • Senha e frases de confirmação." else "Configure a proteção contra remoção.", Icons.Default.DeleteForever,
+                target = "uninstall", onClick = { if (isDeviceAdminActive) showDeviceAdminDialog = true else DeviceAdminManager.requestDeviceAdmin(context) })
+        ),
+        "DISPOSITIVO" to listOf(
+            SettingsTile("permissions", "Central de permissões", "Confira os acessos necessários para o Lock In.", Icons.Default.Tune,
+                target = "permissions", onClick = onNavigateToPermissions),
+            SettingsTile("reset", "Tempo de reset", "Quando liberar e reiniciar o limite do aparelho.", Icons.Default.Sync,
+                target = "reset", onClick = onNavigateToResetSettings),
+            SettingsTile("banking", "Apps bancários", if (isBankingPaused) "Modo banco pausado." else "Compatibilidade e pausa da proteção.", Icons.Default.AccountBalance,
+                onClick = { showBankingSecurityDialog = true }),
+            SettingsTile("background", "Manter app ativo", detectedProfile.family.displayName + " • Bateria e início automático.", Icons.Default.PhoneAndroid,
+                onClick = { showXiaomiDialog = true })
+        ),
+        "SOBRE E PREFERÊNCIAS" to listOf(
+            SettingsTile("info_card", "Informações e créditos", "Conheça o Lock In e quem ajudou a criá-lo.", Icons.Default.Info,
+                onClick = { showInfoDialog = true }),
+            SettingsTile("defaults", "Restaurar preferências", "Redefina tema, alertas, pausa e modo estrito.", Icons.Default.RestartAlt,
+                onClick = { showResetDefaultsDialog = true })
+        )
+    )
+    val showNotificationNotice = streakRemindersEnabled && !notificationsAllowed
+    val tutorialIndexes = buildMap {
+        var index = if (showNotificationNotice) 3 else 2
+        sections.forEach { (_, tiles) ->
+            index++ // section heading
+            tiles.forEach { tile -> if (tile.target.isNotEmpty()) put(tile.target, index); index++ }
+        }
+    }
+    LaunchedEffect(tutorial?.target, showNotificationNotice) {
+        tutorialIndexes[tutorial?.target]?.let { gridState.scrollToItem(it) }
+    }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(horizontal = 20.dp)
-            ) {
-                // Top Header Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp, bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Voltar",
-                            tint = textColor
-                        )
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Box(Modifier.fillMaxSize()) {
+            DotMatrixPattern(Modifier.fillMaxSize())
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Voltar") }
+                    Column {
+                        Text("CONFIGURAÇÕES", fontSize = 15.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Seu Lock In, do seu jeito", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "CONFIGURAÇÕES",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = FontFamily.Monospace,
-                        color = textColor,
-                        letterSpacing = 1.sp
-                    )
                 }
-
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 120.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    // 1. HERO CARD INSPIRED BY THE PHOTO (3 Pixel Glyphs: Theme Contrast, Waves, Bell)
-                    item {
-                        PixelSettingsHeroCard(
-                            accentColor = accentColor
-                        )
-                    }
-
-                    // 2. THEME MODE SEGMENTED CONTROL (Sun, Split/Auto with accent underline, Moon)
-                    item {
-                        ThemeSegmentedController(
-                            selectedMode = currentThemeMode,
-                            accentColor = accentColor,
-                            onSelectMode = { mode ->
-                                triggerHaptic()
-                                onSaveThemeMode(mode)
-                            }
-                        )
-                    }
-
-                    // 3. SENSORIAL & NOTIFICAÇÕES (Cards with switches matching the photo)
-                    item {
-                        SettingsToggleCard(
-                            title = "Haptic Feedback",
-                            description = "Enable a slight vibration during interactions with the interface and timer events",
-                            checked = hapticFeedbackEnabled,
-                            accentColor = accentColor,
-                            onCheckedChange = { checked ->
-                                triggerHaptic()
-                                onSaveHapticFeedback(checked)
-                            },
-                            testTag = "settings_toggle_haptic"
-                        )
-                    }
-
-                    item {
-                        SettingsToggleCard(
-                            title = "Streak reminders",
-                            description = "An evening nudge if you haven't done at least one minute of session today",
-                            checked = streakRemindersEnabled,
-                            accentColor = accentColor,
-                            onCheckedChange = { checked ->
-                                triggerHaptic()
-                                onSaveStreakReminders(checked)
-                            },
-                            testTag = "settings_toggle_streak"
-                        )
-                    }
-
-                    item {
-                        SettingsToggleCard(
-                            title = "Alerta Pré-Limite (5 & 2 min)",
-                            description = "Notificação suave e pulso háptico quando seu tempo restante estiver quase esgotado",
-                            checked = preLimitAlertsEnabled,
-                            accentColor = accentColor,
-                            onCheckedChange = { checked ->
-                                triggerHaptic()
-                                onSavePreLimitAlerts(checked)
-                            },
-                            testTag = "settings_toggle_pre_limit"
-                        )
-                    }
-
-                    // 4. DISCIPLINA & CONTROLE MENTAL
-                    item {
-                        SettingsToggleCard(
-                            title = "Pausa Consciente (Mindful Delay)",
-                            description = "Exigir espera de 30 segundos com contagem de respiração antes de permitir desbloquear",
-                            checked = mindfulDelayEnabled,
-                            accentColor = accentColor,
-                            onCheckedChange = { checked ->
-                                triggerHaptic()
-                                onSaveMindfulDelay(checked)
-                            },
-                            testTag = "settings_toggle_mindful"
-                        )
-                    }
-
-                    item {
-                        SettingsToggleCard(
-                            title = "Modo Estrito (Strict Mode)",
-                            description = "Impede alterar cotas ou desligar restrições enquanto um limite estiver em andamento",
-                            checked = strictModeEnabled,
-                            accentColor = accentColor,
-                            onCheckedChange = { checked ->
-                                triggerHaptic()
-                                onSaveStrictMode(checked)
-                            },
-                            testTag = "settings_toggle_strict"
-                        )
-                    }
-
-                    // 5. ATALHOS RÁPIDOS DE CONFIGURAÇÃO DO SISTEMA
-                    item {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = "AJUSTES AVANÇADOS",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = CmfMutedText,
-                                letterSpacing = 1.sp,
-                                modifier = Modifier.padding(start = 4.dp, top = 6.dp)
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Nome do Usuário",
-                                subtitle = if (userName.isBlank()) "Defina seu nome de foco" else userName,
-                                icon = Icons.Default.Person,
-                                accentColor = accentColor,
-                                onClick = { showNameDialog = true }
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Estilização da Ilha & Cores",
-                                subtitle = "Posição, opacidade, tamanho da cápsula e cor de acento",
-                                icon = Icons.Default.ColorLens,
-                                accentColor = accentColor,
-                                onClick = onNavigateToStyling
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Tempo de Reset do Telefone",
-                                subtitle = "Defina o tempo para desbloquear e reiniciar após o limite esgotar (ex: 2h, padrão 1 dia)",
-                                icon = Icons.Default.Sync,
-                                accentColor = accentColor,
-                                onClick = onNavigateToResetSettings
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Central de Permissões",
-                                subtitle = "Verifique Sobreposição, Dados de Uso e Acessibilidade",
-                                icon = Icons.Default.Security,
-                                accentColor = accentColor,
-                                onClick = onNavigateToPermissions
-                            )
-
-                            val isBankingPaused by com.example.service.BankingSecurityHelper.isPausedFlow.collectAsState()
-                            SettingsNavigationRow(
-                                title = "Proteção & Apps Bancários",
-                                subtitle = if (isBankingPaused) "Pausa Ativa (Acesso livre para bancos)" else "Isenção Automática Ativa (100% Seguro para Bancos)",
-                                icon = Icons.Default.Shield,
-                                accentColor = if (isBankingPaused) Color(0xFFF59E0B) else Color(0xFF22C55E),
-                                onClick = { showBankingSecurityDialog = true }
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Conta & Sincronização em Nuvem",
-                                subtitle = if (currentAccount != null) "${currentAccount!!.email} • Backup ativo" else "Conecte Google, Apple, Hotmail, Outlook, Yahoo...",
-                                icon = if (currentAccount != null) Icons.Default.CloudDone else Icons.Default.CloudSync,
-                                accentColor = if (currentAccount != null) Color(0xFF2E7D32) else accentColor,
-                                onClick = { showAccountSyncDialog = true }
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Senha de Confiança",
-                                subtitle = "Altere o código de segurança (Mín. 8, 1 maiúscula, 1 símbolo)",
-                                icon = Icons.Default.Lock,
-                                accentColor = accentColor,
-                                onClick = { showPasswordDialog = true }
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Nível de Lock (Bloqueio)",
-                                subtitle = "Nível atual: ${currentLockLevel.title} • Regras e limites diários de desbloqueio",
-                                icon = Icons.Default.Security,
-                                accentColor = accentColor,
-                                onClick = { showChangeLockLevelDialog = true }
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Bloqueio de Instalação Absoluta",
-                                subtitle = if (isAbsoluteInstallBlock) "ATIVO • Remoção proibida (Desativação exige 5 senhas, frase e token de e-mail)" else "Desativado • Ative para blindar e impedir remoção de apps da lista",
-                                icon = Icons.Default.Shield,
-                                accentColor = if (isAbsoluteInstallBlock) Color(0xFFEF4444) else accentColor,
-                                onClick = {
-                                    pendingAbsoluteBlockEnable = !isAbsoluteInstallBlock
-                                    showAbsoluteBlockDialog = true
-                                }
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Blacklist da Play Store",
-                                subtitle = "Bloqueie a instalação de novos aplicativos na Play Store",
-                                icon = Icons.Default.Block,
-                                accentColor = accentColor,
-                                onClick = { showPlayStoreBlacklistDialog = true }
-                            )
-
-                            SettingsNavigationRow(
-                                title = "Bloqueio de Sites (Blacklist Web)",
-                                subtitle = "Impeça o acesso a sites e domínios em navegadores (Chrome, Samsung...)",
-                                icon = Icons.Default.Language,
-                                accentColor = accentColor,
-                                onClick = { showWebsiteBlacklistDialog = true }
-                            )
-
-                            val isVpnRunning by LockInVpnManager.isVpnRunning.collectAsState()
-                            val vpnBlockedCount by LockInVpnManager.blockedDnsCount.collectAsState()
-                            SettingsNavigationRow(
-                                title = "Escudo de Rede & Firewall Local",
-                                subtitle = if (isVpnRunning) "Ativo • $vpnBlockedCount bloqueios hoje • 100% no aparelho (Bancos Isentos)" else "Desativado • Filtro DNS nativo e corte de rede para apps esgotados",
-                                icon = Icons.Default.Shield,
-                                accentColor = if (isVpnRunning) Color(0xFF22C55E) else accentColor,
-                                onClick = { showVpnShieldDialog = true }
-                            )
-
-                            val isDeviceAdminActive = DeviceAdminManager.isDeviceAdminActive(context)
-                            SettingsNavigationRow(
-                                title = "Proteção Contra Desinstalação",
-                                subtitle = if (isDeviceAdminActive) "Administrador Ativo (Exige 5 senhas + frase)" else "Toque para blindar o app contra desinstalação",
-                                icon = Icons.Default.Shield,
-                                accentColor = if (isDeviceAdminActive) Color(0xFF2E7D32) else accentColor,
-                                onClick = {
-                                    if (!isDeviceAdminActive) {
-                                        DeviceAdminManager.requestDeviceAdmin(context)
-                                    } else {
-                                        showDeviceAdminDialog = true
-                                    }
-                                }
-                            )
-
-                            val detectedProfile = remember { DeviceInstructionHelper.getProfile() }
-                            SettingsNavigationRow(
-                                title = "Como Manter o App Ativo & Início Automático",
-                                subtitle = "${detectedProfile.family.displayName} • Travar na aba de recentes e auto start",
-                                icon = Icons.Default.PhoneAndroid,
-                                accentColor = Color(0xFFFF6900),
-                                onClick = { showXiaomiDialog = true }
-                            )
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    // Two columns on phones; wider/landscape windows gain space without a horizontal scroll.
+                    val columns = if (maxWidth >= 700.dp) 4 else 2
+                    LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState,
+                        modifier = Modifier.fillMaxSize().testTag("settings_content"),
+                        contentPadding = PaddingValues(bottom = 120.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        item(key = "hero", span = { GridItemSpan(maxLineSpan) }) {
+                            PixelSettingsHeroCard(accentColor, currentThemeMode, hapticFeedbackEnabled, streakRemindersEnabled,
+                                onTheme = { triggerHaptic(); onSaveThemeMode(when(currentThemeMode) { "LIGHT" -> "SYSTEM"; "SYSTEM" -> "DARK"; else -> "LIGHT" }) },
+                                onHaptic = { setHaptic(!hapticFeedbackEnabled) }, onReminder = { setReminder(!streakRemindersEnabled) })
                         }
-                    }
-
-                    // 6. ÁREA DE CRÉDITOS
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isDarkTheme) Color(0xFF1E1E22) else Color(0xFFF3F3F5))
-                                .border(1.dp, if (isDarkTheme) Color(0xFF2A2A30) else CmfBorder, RoundedCornerShape(12.dp))
-                                .padding(16.dp)
-                        ) {
-                            Column {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(CircleShape)
-                                            .background(accentColor),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "★",
-                                            fontSize = 12.sp,
-                                            color = Color.White
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "ÁREA DE CRÉDITOS",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = accentColor,
-                                        letterSpacing = 1.sp
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                // 1- Davi Gabriel - DEV principal do Lock In
-                                CreditItemRow(
-                                    number = "1",
-                                    name = "Davi Gabriel",
-                                    role = "DEV principal do Lock In",
-                                    isDark = isDarkTheme,
-                                    textColor = textColor
-                                )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // 2- Google AI studio - Principal meio de desenvolvimento
-                                CreditItemRow(
-                                    number = "2",
-                                    name = "Google AI studio",
-                                    role = "Principal meio de desenvolvimento",
-                                    isDark = isDarkTheme,
-                                    textColor = textColor
-                                )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // 3- Juan Pablo - Principal Tester e System Breaker.
-                                CreditItemRow(
-                                    number = "3",
-                                    name = "Juan Pablo",
-                                    role = "Principal Tester e System Breaker.",
-                                    isDark = isDarkTheme,
-                                    textColor = textColor,
-                                    hasInfoIcon = true,
-                                    onClick = { showJuanPabloDialog = true }
-                                )
+                        item(key = "theme", span = { GridItemSpan(maxLineSpan) }) {
+                            ThemeSegmentedController(currentThemeMode, accentColor) { triggerHaptic(); onSaveThemeMode(it) }
+                        }
+                        if (showNotificationNotice) item(key = "notification_notice", span = { GridItemSpan(maxLineSpan) }) {
+                            NothingCard(title = "NOTIFICAÇÕES DESATIVADAS") {
+                                Text("Permita notificações para receber o lembrete.", fontSize = 13.sp)
+                                TextButton(onClick = onNavigateToPermissions, modifier = Modifier.testTag("settings_reminder_permissions")) { Text("Abrir central de permissões") }
                             }
                         }
-                    }
-
-                    // 7. INFO CARD AT THE BOTTOM
-                    item {
-                        SettingsBottomSplitCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            title = "Info",
-                            subtitle = "Informações e créditos do app",
-                            accentColor = accentColor,
-                            onClick = { showInfoDialog = true },
-                            testTag = "settings_info_card"
-                        )
-                    }
-
-
-                    // 7. RESTORE DEFAULTS
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isDarkTheme) Color(0xFF1E1E22) else Color(0xFFF3F3F5))
-                                .border(1.dp, if (isDarkTheme) Color(0xFF2A2A30) else CmfBorder, RoundedCornerShape(12.dp))
-                                .clickable { showResetDefaultsDialog = true }
-                                .padding(16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.RestartAlt,
-                                        contentDescription = null,
-                                        tint = CmfMutedText,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = "Restaurar Padrões de Fábrica",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = textColor
-                                    )
-                                }
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                                    contentDescription = null,
-                                    tint = CmfMutedText,
-                                    modifier = Modifier.size(12.dp)
-                                )
+                        sections.forEach { (title, tiles) ->
+                            item(key = title, span = { GridItemSpan(maxLineSpan) }) {
+                                Text(title, Modifier.padding(top = 12.dp, bottom = 2.dp), fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = 1.sp)
                             }
+                            tiles.forEach { tile -> item(key = tile.key) { SettingsGridTile(tile, accentColor) } }
                         }
+                        item(key = "tutorial", span = { GridItemSpan(maxLineSpan) }) { com.example.ui.tutorial.TutorialEntry() }
                     }
-
-                    item { Spacer(modifier = Modifier.height(36.dp)) }
                 }
             }
         }
@@ -730,6 +447,7 @@ fun SettingsScreen(
     if (showDeviceAdminDialog) {
         DeviceAdminStatusDialog(
             accentColor = accentColor,
+            passwordRepeats = currentLockLevel.passwordRepeatCount,
             onDismiss = { showDeviceAdminDialog = false },
             onStartUninstallProtocol = {
                 showDeviceAdminDialog = false
@@ -754,35 +472,50 @@ fun SettingsScreen(
 // -------------------------------------------------------------------------
 @Composable
 private fun PixelSettingsHeroCard(
-    accentColor: Color
+    accentColor: Color,
+    themeMode: String,
+    hapticEnabled: Boolean,
+    reminderEnabled: Boolean,
+    onTheme: () -> Unit,
+    onHaptic: () -> Unit,
+    onReminder: () -> Unit
 ) {
-    val isDark = com.example.ui.theme.LocalIsDarkTheme.current
-    val cardBg = if (isDark) Color(0xFF1E1E22) else Color(0xFFF4F4F6)
-    val cardBorder = if (isDark) Color(0xFF2C2C32) else Color(0xFFE2E2E6)
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(cardBg)
-            .border(1.dp, cardBorder, RoundedCornerShape(20.dp))
-            .padding(vertical = 24.dp, horizontal = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 1. Pixel Art Split Moon / Contrast Glyph
-            PixelMoonGlyph(accentColor = accentColor, modifier = Modifier.size(56.dp, 64.dp))
-
-            // 2. Pixel Art Wavy Vibration Waves
-            PixelWavesGlyph(accentColor = accentColor, modifier = Modifier.size(44.dp, 64.dp))
-
-            // 3. Pixel Art Notification Bell
-            PixelBellGlyph(accentColor = accentColor, modifier = Modifier.size(52.dp, 64.dp))
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    NothingCard {
+        Text("DO SEU JEITO", fontFamily = FontFamily.Monospace, fontSize = 11.sp,
+            letterSpacing = 1.sp, color = muted)
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PixelShortcut("Tema", when (themeMode) { "DARK" -> "Escuro"; "SYSTEM" -> "Sistema"; else -> "Claro" },
+                onTheme, Modifier.weight(1f).testTag("settings_hero_theme")) {
+                PixelMoonGlyph(accentColor, Modifier.size(32.dp, 48.dp))
+            }
+            PixelShortcut("Vibração", if (hapticEnabled) "Ativada" else "Desativada", onHaptic,
+                Modifier.weight(1f).testTag("settings_hero_haptic")) {
+                PixelWavesGlyph(if (hapticEnabled) accentColor else muted, Modifier.size(32.dp, 48.dp))
+            }
+            PixelShortcut("Lembrete", if (reminderEnabled) "20h" else "Desativado", onReminder,
+                Modifier.weight(1f).testTag("settings_hero_reminder")) {
+                PixelBellGlyph(if (reminderEnabled) accentColor else muted, Modifier.size(36.dp, 48.dp))
+            }
         }
+    }
+}
+
+@Composable
+private fun PixelShortcut(
+    label: String, state: String, onClick: () -> Unit, modifier: Modifier,
+    glyph: @Composable () -> Unit
+) {
+    Column(modifier.clip(RoundedCornerShape(12.dp))
+        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        .semantics { stateDescription = state }
+        .clickable(role = Role.Button, onClickLabel = "Alterar $label", onClick = onClick)
+        .padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        glyph()
+        Spacer(Modifier.height(12.dp))
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+        Text(state, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -899,72 +632,23 @@ private fun ThemeSegmentedController(
     accentColor: Color,
     onSelectMode: (String) -> Unit
 ) {
-    val isDark = com.example.ui.theme.LocalIsDarkTheme.current
-    val barBg = if (isDark) Color(0xFF1E1E22) else Color(0xFFF4F4F6)
-    val barBorder = if (isDark) Color(0xFF2C2C32) else Color(0xFFE2E2E6)
-    val selectedBg = if (isDark) Color(0xFF2B2B32) else Color(0xFFFFFFFF)
-    val selectedBorder = if (isDark) Color(0xFF3E3E48) else Color(0xFFE2E2E6)
-    val selectedIconTint = if (isDark) Color.White else CmfDark
-    val unselectedIconTint = if (isDark) Color(0xFF8E8E98) else Color(0xFF71717A)
-    val unselectedTextTint = if (isDark) Color(0xFF8E8E98) else Color(0xFF71717A)
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(barBg)
-            .border(1.dp, barBorder, RoundedCornerShape(16.dp))
-            .padding(6.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(
-                Triple("LIGHT", Icons.Default.LightMode, "Claro"),
-                Triple("SYSTEM", Icons.Default.HourglassBottom, "Auto"),
-                Triple("DARK", Icons.Default.DarkMode, "Escuro")
-            ).forEach { (mode, icon, label) ->
-                val isSelected = selectedMode == mode
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (isSelected) selectedBg else Color.Transparent)
-                        .then(if (isSelected) Modifier.border(1.dp, selectedBorder, RoundedCornerShape(12.dp)) else Modifier)
-                        .clickable { onSelectMode(mode) }
-                        .padding(vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = label,
-                            tint = if (isSelected) selectedIconTint else unselectedIconTint,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        if (isSelected) {
-                            Box(
-                                modifier = Modifier
-                                    .width(24.dp)
-                                    .height(2.dp)
-                                    .background(accentColor, CircleShape)
-                            )
-                        } else {
-                            Text(
-                                text = label.uppercase(),
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = unselectedTextTint
-                            )
-                        }
-                    }
-                }
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+        .background(MaterialTheme.colorScheme.surfaceVariant).padding(4.dp).selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        listOf(Triple("LIGHT", Icons.Default.LightMode, "Claro"),
+            Triple("SYSTEM", Icons.Default.BrightnessAuto, "Sistema"),
+            Triple("DARK", Icons.Default.DarkMode, "Escuro")).forEach { (mode, icon, label) ->
+            val selected = selectedMode == mode
+            Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                .background(if (selected) MaterialTheme.colorScheme.surface else Color.Transparent)
+                .selectable(selected = selected, role = Role.RadioButton, onClick = { onSelectMode(mode) })
+                .testTag("settings_theme_$mode").padding(vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(icon, null, tint = if (selected) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp))
+                Text(label, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }
@@ -974,256 +658,55 @@ private fun ThemeSegmentedController(
 // SETTINGS TOGGLE CARD (with Nothing OS style Switch + "0" indicator)
 // -------------------------------------------------------------------------
 @Composable
-private fun SettingsToggleCard(
-    title: String,
-    description: String,
-    checked: Boolean,
-    accentColor: Color,
-    onCheckedChange: (Boolean) -> Unit,
-    testTag: String
-) {
-    val isDark = LocalIsDarkTheme.current
-    val cardBg = if (isDark) Color(0xFF18181B) else CmfWhite
-    val cardBorder = if (isDark) Color(0xFF27272A) else CmfBorder
-    val titleColor = if (isDark) Color.White else CmfDark
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(cardBg)
-            .border(1.dp, cardBorder, RoundedCornerShape(14.dp))
-            .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 14.dp)
-            .testTag(testTag)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                Text(
-                    text = title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    color = titleColor
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = description,
-                    fontSize = 11.sp,
-                    color = CmfMutedText,
-                    lineHeight = 15.sp
-                )
-            }
-
-            // Custom Nothing OS Switch with '0' / 'I' binary dot below
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                NothingSwitch(
-                    checked = checked,
-                    onCheckedChange = onCheckedChange,
-                    accentColor = accentColor
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = if (checked) "I" else "0",
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Black,
-                    color = if (checked) accentColor else CmfMutedText
-                )
-            }
-        }
-    }
-}
-
-@Composable
 fun NothingSwitch(
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+    onCheckedChange: ((Boolean) -> Unit)?,
     accentColor: Color,
     modifier: Modifier = Modifier
 ) {
     val thumbOffset by animateDpAsState(
-        targetValue = if (checked) 18.dp else 2.dp,
-        animationSpec = spring(stiffness = 500f),
-        label = "switch_thumb"
+        targetValue = if (checked) 18.dp else 0.dp,
+        animationSpec = spring(stiffness = 500f), label = "switch_thumb"
     )
-
-    Box(
-        modifier = modifier
-            .width(42.dp)
-            .height(24.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (checked) Color(0xFF221A16) else Color(0xFF27272A))
-            .border(
-                1.dp,
-                if (checked) accentColor.copy(alpha = 0.6f) else Color(0xFF3F3F46),
-                RoundedCornerShape(12.dp)
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { onCheckedChange(!checked) }
-            .padding(2.dp),
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Box(
-            modifier = Modifier
-                .offset(x = thumbOffset)
-                .size(18.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(if (checked) accentColor else Color(0xFF71717A))
-        )
+    Box(modifier.width(44.dp).height(26.dp).clip(RoundedCornerShape(13.dp))
+        .background(if (checked) accentColor.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surfaceVariant)
+        .border(1.dp, if (checked) accentColor.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline,
+            RoundedCornerShape(13.dp))
+        .then(if (onCheckedChange != null) Modifier.toggleable(checked, role = Role.Switch,
+            onValueChange = onCheckedChange) else Modifier)
+        .padding(4.dp), contentAlignment = Alignment.CenterStart) {
+        Box(Modifier.offset(x = thumbOffset).size(18.dp).clip(CircleShape)
+            .background(if (checked) accentColor else MaterialTheme.colorScheme.onSurfaceVariant))
     }
 }
 
-// -------------------------------------------------------------------------
-// NAVIGATION ROW (Item de navegação rápida)
-// -------------------------------------------------------------------------
+private data class SettingsTile(
+    val key: String, val title: String, val summary: String, val icon: ImageVector,
+    val target: String = "", val checked: Boolean? = null, val onClick: () -> Unit
+)
+
 @Composable
-private fun SettingsNavigationRow(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    accentColor: Color,
-    onClick: () -> Unit
-) {
-    val isDark = LocalIsDarkTheme.current
-    val cardBg = if (isDark) Color(0xFF18181B) else CmfWhite
-    val cardBorder = if (isDark) Color(0xFF27272A) else CmfBorder
-    val titleColor = if (isDark) Color.White else CmfDark
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(cardBg)
-            .border(1.dp, cardBorder, RoundedCornerShape(12.dp))
-            .clickable { onClick() }
-            .padding(14.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isDark) Color(0xFF222226) else Color(0xFFF3F3F5)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        text = title,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = titleColor
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = subtitle,
-                        fontSize = 10.sp,
-                        color = CmfMutedText,
-                        lineHeight = 13.sp
-                    )
-                }
-            }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                contentDescription = null,
-                tint = CmfMutedText,
-                modifier = Modifier.size(12.dp)
-            )
+private fun SettingsGridTile(tile: SettingsTile, accentColor: Color) {
+    val shape = RoundedCornerShape(16.dp)
+    val tag = if (tile.checked != null) "settings_toggle_${tile.key}" else "settings_${tile.key}"
+    val action = if (tile.checked != null) Modifier.toggleable(tile.checked, role = Role.Switch, onValueChange = { tile.onClick() })
+        else Modifier.clickable(role = Role.Button, onClick = tile.onClick)
+    Column(Modifier.fillMaxWidth().heightIn(min = 168.dp).tutorialTarget(tile.target).testTag(tag)
+        .clip(shape).background(MaterialTheme.colorScheme.surface)
+        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape).then(action).padding(14.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Icon(tile.icon, null, tint = accentColor, modifier = Modifier.size(22.dp))
+            if (tile.checked != null) NothingSwitch(tile.checked, null, accentColor)
+            else Icon(Icons.AutoMirrored.Filled.ArrowForwardIos, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
         }
+        Spacer(Modifier.height(16.dp))
+        Text(tile.title, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(6.dp))
+        Text(tile.summary, fontSize = 12.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-// -------------------------------------------------------------------------
-// TWO BOTTOM SPLIT CARDS (Matching the Photo: "You are a Premium User" & "Info")
-// -------------------------------------------------------------------------
-@Composable
-private fun SettingsBottomSplitCard(
-    modifier: Modifier = Modifier,
-    title: String,
-    subtitle: String,
-    accentColor: Color,
-    onClick: () -> Unit,
-    testTag: String
-) {
-    val isDark = LocalIsDarkTheme.current
-    val cardBg = if (isDark) Color(0xFF18181B) else CmfWhite
-    val cardBorder = if (isDark) Color(0xFF27272A) else CmfBorder
-    val titleColor = if (isDark) Color.White else CmfDark
-
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(cardBg)
-            .border(1.dp, cardBorder, RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .padding(14.dp)
-            .testTag(testTag)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column {
-                Text(
-                    text = title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.Monospace,
-                    color = titleColor,
-                    lineHeight = 17.sp
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = subtitle,
-                    fontSize = 10.sp,
-                    color = CmfMutedText,
-                    lineHeight = 14.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                    contentDescription = null,
-                    tint = CmfMutedText,
-                    modifier = Modifier.size(12.dp)
-                )
-            }
-        }
-    }
-}
-
-// -------------------------------------------------------------------------
-// DIALOG: ALTERAR NOME DO USUÁRIO
-// -------------------------------------------------------------------------
 @Composable
 private fun ChangeNameDialog(
     currentName: String,
@@ -1380,7 +863,7 @@ private fun InfoCreditsDialog(
                             color = titleColor
                         )
                         Text(
-                            text = "Versão 2.4.0 (CMF Nothing OS Design)",
+                            text = "Versão ${com.example.BuildConfig.VERSION_NAME}",
                             fontSize = 10.sp,
                             color = CmfMutedText
                         )
@@ -1472,416 +955,6 @@ private fun InfoCreditsDialog(
 }
 
 // -------------------------------------------------------------------------
-// DIALOG: ALTERAR SENHA DE CONFIANÇA
-// -------------------------------------------------------------------------
-// -------------------------------------------------------------------------
-// DIALOG: ALTERAR SENHA DE CONFIANÇA (COM RECUPERAÇÃO VIA E-MAIL)
-// -------------------------------------------------------------------------
-@Composable
-private fun ChangePasswordDialog(
-    currentPassword: String,
-    accentColor: Color,
-    onSaveNewPassword: (String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val isDark = LocalIsDarkTheme.current
-    val account by CloudSyncManager.currentAccount.collectAsState()
-    val registeredEmail = account?.email ?: "usuario@lockin.app"
-
-    var isForgotMode by remember { mutableStateOf(false) }
-    var useEmergencyPhrase by remember { mutableStateOf(false) }
-
-    var oldPass by remember { mutableStateOf("") }
-    var newPass by remember { mutableStateOf("") }
-    var confirmPass by remember { mutableStateOf("") }
-    var passwordVisible by remember { mutableStateOf(false) }
-    var errorText by remember { mutableStateOf<String?>(null) }
-
-    // Email 6-digit code recovery states
-    var generatedCode by remember { mutableStateOf("") }
-    var codeInput by remember { mutableStateOf("") }
-    var isCodeVerified by remember { mutableStateOf(false) }
-    var resendCooldown by remember { mutableStateOf(0) }
-
-    // Emergency phrase
-    val emergencyPhraseTarget = "Estou seguro que quero redefinir minha senha"
-    var emergencyPhraseInput by remember { mutableStateOf("") }
-    var isPhraseVerified by remember { mutableStateOf(false) }
-
-    fun sendVerificationCode() {
-        val code = String.format("%06d", (100000..999999).random())
-        generatedCode = code
-        resendCooldown = 30
-        android.widget.Toast.makeText(
-            context,
-            "Código de verificação enviado para $registeredEmail: $code",
-            android.widget.Toast.LENGTH_LONG
-        ).show()
-    }
-
-    LaunchedEffect(resendCooldown) {
-        if (resendCooldown > 0) {
-            kotlinx.coroutines.delay(1000L)
-            resendCooldown -= 1
-        }
-    }
-
-    val isNewPassValid = PasswordValidator.isValid(newPass)
-    val isAuthorizedToSave = if (isForgotMode) {
-        if (useEmergencyPhrase) isPhraseVerified else isCodeVerified
-    } else {
-        oldPass == currentPassword && oldPass.isNotEmpty()
-    }
-
-    val dialogBg = if (isDark) Color(0xFF18181B) else CmfWhite
-    val dialogBorder = if (isDark) Color(0xFF2E2E34) else CmfBorder
-    val textColor = if (isDark) Color.White else CmfDark
-    val subtextColor = if (isDark) Color(0xFFD1D5DB) else Color(0xFF52525B)
-
-    Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(dialogBg)
-                .border(1.2.dp, dialogBorder, RoundedCornerShape(18.dp))
-                .padding(20.dp)
-        ) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (isForgotMode) "RECUPERAR SENHA" else "ALTERAR SENHA DE SEGURANÇA",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                        fontFamily = FontFamily.Monospace,
-                        color = textColor
-                    )
-
-                    if (isForgotMode) {
-                        TextButton(
-                            onClick = {
-                                isForgotMode = false
-                                errorText = null
-                            }
-                        ) {
-                            Text("Voltar", fontSize = 10.sp, color = accentColor, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                if (!isForgotMode) {
-                    // MODO NORMAL: Digitar Senha Atual
-                    Text("Senha Atual", fontSize = 10.sp, color = subtextColor, fontFamily = FontFamily.Monospace)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    OutlinedTextField(
-                        value = oldPass,
-                        onValueChange = {
-                            oldPass = it
-                            errorText = null
-                        },
-                        singleLine = true,
-                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = textColor,
-                            unfocusedTextColor = textColor,
-                            focusedBorderColor = accentColor,
-                            unfocusedBorderColor = if (isDark) Color(0xFF3F3F46) else Color(0xFFD1D5DB)
-                        )
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(
-                            onClick = {
-                                isForgotMode = true
-                                errorText = null
-                                sendVerificationCode()
-                            }
-                        ) {
-                            Text(
-                                text = "Esqueci minha senha",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = accentColor,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                } else {
-                    // MODO ESQUECI MINHA SENHA
-                    if (!useEmergencyPhrase) {
-                        // Verificação via Código de 6 Dígitos
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(accentColor.copy(alpha = 0.12f))
-                                .padding(10.dp)
-                        ) {
-                            Column {
-                                Text(
-                                    text = "CÓDIGO DE RECUPERAÇÃO ENVIADO",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = accentColor
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "Enviamos um código de 6 dígitos para o e-mail: $registeredEmail",
-                                    fontSize = 11.sp,
-                                    color = subtextColor
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        Text("Código de Verificação (6 Dígitos)", fontSize = 10.sp, color = subtextColor, fontFamily = FontFamily.Monospace)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = codeInput,
-                                onValueChange = { input ->
-                                    val filtered = input.filter { it.isDigit() }.take(6)
-                                    codeInput = filtered
-                                    errorText = null
-                                    if (filtered == generatedCode && filtered.isNotEmpty()) {
-                                        isCodeVerified = true
-                                    }
-                                },
-                                placeholder = { Text("Ex: 123456") },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.weight(1f),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedTextColor = textColor,
-                                    unfocusedTextColor = textColor,
-                                    focusedBorderColor = if (isCodeVerified) Color(0xFF22C55E) else accentColor,
-                                    unfocusedBorderColor = if (isCodeVerified) Color(0xFF22C55E) else (if (isDark) Color(0xFF3F3F46) else Color(0xFFD1D5DB))
-                                )
-                            )
-
-                            Button(
-                                onClick = { sendVerificationCode() },
-                                enabled = resendCooldown == 0,
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0xFF2C2C32) else Color(0xFFE5E7EB))
-                            ) {
-                                Text(
-                                    text = if (resendCooldown > 0) "${resendCooldown}s" else "Reenviar",
-                                    fontSize = 10.sp,
-                                    color = textColor,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                        }
-
-                        if (isCodeVerified) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "✓ Código validado com sucesso! Defina sua nova senha abaixo.",
-                                fontSize = 10.sp,
-                                color = Color(0xFF22C55E),
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-
-                        TextButton(
-                            onClick = { useEmergencyPhrase = true },
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Text("Sem acesso ao e-mail? Usar Frase de Foco", fontSize = 9.sp, color = subtextColor)
-                        }
-                    } else {
-                        // Fallback: Frase de Emergência
-                        Text(
-                            text = "Digite exatamente a frase de compromisso para redefinir:",
-                            fontSize = 10.5.sp,
-                            color = subtextColor
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "\"$emergencyPhraseTarget\"",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = accentColor,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = emergencyPhraseInput,
-                            onValueChange = {
-                                emergencyPhraseInput = it
-                                errorText = null
-                                if (it.trim().equals(emergencyPhraseTarget, ignoreCase = true)) {
-                                    isPhraseVerified = true
-                                }
-                            },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = textColor,
-                                unfocusedTextColor = textColor,
-                                focusedBorderColor = if (isPhraseVerified) Color(0xFF22C55E) else accentColor,
-                                unfocusedBorderColor = if (isDark) Color(0xFF3F3F46) else Color(0xFFD1D5DB)
-                            )
-                        )
-
-                        TextButton(
-                            onClick = { useEmergencyPhrase = false },
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Text("Voltar para código por e-mail", fontSize = 9.sp, color = accentColor)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Nova Senha
-                Text("Nova Senha (Mín. 12, 1 Maiúscula, 1 Símbolo)", fontSize = 10.sp, color = subtextColor, fontFamily = FontFamily.Monospace)
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = newPass,
-                    onValueChange = {
-                        newPass = it
-                        errorText = null
-                    },
-                    singleLine = true,
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = textColor,
-                        unfocusedTextColor = textColor,
-                        focusedBorderColor = accentColor,
-                        unfocusedBorderColor = if (isDark) Color(0xFF3F3F46) else Color(0xFFD1D5DB)
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Requirement Chips
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    PasswordRequirementChip(
-                        text = "12+ carac.",
-                        isValid = PasswordValidator.hasMinLength(newPass)
-                    )
-                    PasswordRequirementChip(
-                        text = "1 Maiúscula (A-Z)",
-                        isValid = PasswordValidator.hasUppercase(newPass)
-                    )
-                    PasswordRequirementChip(
-                        text = "1 Símbolo (!@#)",
-                        isValid = PasswordValidator.hasSpecialSymbol(newPass)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Confirmar Nova Senha
-                Text("Confirmar Nova Senha", fontSize = 10.sp, color = subtextColor, fontFamily = FontFamily.Monospace)
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = confirmPass,
-                    onValueChange = {
-                        confirmPass = it
-                        errorText = null
-                    },
-                    singleLine = true,
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = textColor,
-                        unfocusedTextColor = textColor,
-                        focusedBorderColor = accentColor,
-                        unfocusedBorderColor = if (isDark) Color(0xFF3F3F46) else Color(0xFFD1D5DB)
-                    )
-                )
-
-                if (errorText != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = errorText!!, color = Color.Red, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f).height(44.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = if (isDark) Color(0xFF2C2C32) else Color(0xFFE5E7EB))
-                    ) {
-                        Text("CANCELAR", fontSize = 10.sp, color = textColor)
-                    }
-
-                    Button(
-                        onClick = {
-                            if (!isForgotMode && oldPass != currentPassword) {
-                                errorText = "Senha atual incorreta."
-                                return@Button
-                            }
-                            if (isForgotMode && !useEmergencyPhrase && !isCodeVerified) {
-                                if (codeInput != generatedCode) {
-                                    errorText = "Código de verificação incorreto."
-                                    return@Button
-                                }
-                            }
-                            if (isForgotMode && useEmergencyPhrase && !isPhraseVerified) {
-                                errorText = "Digite a frase de compromisso corretamente."
-                                return@Button
-                            }
-                            val validationError = PasswordValidator.getValidationError(newPass)
-                            if (validationError != null) {
-                                errorText = validationError
-                                return@Button
-                            }
-                            if (newPass != confirmPass) {
-                                errorText = "As senhas não coincidem."
-                                return@Button
-                            }
-                            onSaveNewPassword(newPass)
-                            android.widget.Toast.makeText(context, "Nova senha de confiança salva com sucesso!", android.widget.Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.weight(1f).height(44.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                        enabled = isNewPassValid && confirmPass.isNotEmpty() && isAuthorizedToSave
-                    ) {
-                        Text("SALVAR", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-}
-
-// -------------------------------------------------------------------------
 // DIALOG: CONFIRMAR RESTAURAÇÃO DE PADRÕES
 // -------------------------------------------------------------------------
 @Composable
@@ -1911,7 +984,7 @@ private fun ResetDefaultsConfirmDialog(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "Todas as preferências de tema, vibração, alertas e ilha flutuante serão revertidas aos valores de fábrica.",
+                    text = "Tema, vibração, alertas e ilha serão redefinidos. A pausa consciente e o modo estrito serão desativados. Suas senhas e listas de apps não serão apagadas.",
                     fontSize = 11.sp,
                     color = CmfMutedText,
                     lineHeight = 15.sp
@@ -1952,6 +1025,7 @@ private fun ResetDefaultsConfirmDialog(
 @Composable
 private fun DeviceAdminStatusDialog(
     accentColor: Color,
+    passwordRepeats: Int,
     onDismiss: () -> Unit,
     onStartUninstallProtocol: () -> Unit
 ) {
@@ -2023,7 +1097,7 @@ private fun DeviceAdminStatusDialog(
                         .padding(10.dp)
                 ) {
                     Text(
-                        text = "• Digitar a Senha de Confiança 5 vezes consecutivas (sem errar).\n• Digitar manualmente a frase exata 'estou seguro de desinstalar o Lock in'.\n• Proibido copiar e colar.",
+                        text = "• Digitar a Senha de Confiança $passwordRepeats vez${if (passwordRepeats > 1) "es consecutivas" else ""} (sem errar).\n• Completar as frases de confirmação exibidas no protocolo.\n• Proibido copiar e colar.",
                         fontSize = 10.sp,
                         color = if (isDark) Color(0xFFFFB74D) else Color(0xFFE65100),
                         lineHeight = 15.sp
@@ -2071,7 +1145,7 @@ private fun BankingSecurityDialog(
 ) {
     val context = LocalContext.current
     val isDark = LocalIsDarkTheme.current
-    val isPaused by com.example.service.BankingSecurityHelper.isPausedFlow.collectAsState()
+    val isPaused by com.example.service.BankingSecurityHelper.isPausedFlow.collectAsStateWithLifecycle()
     val isCaixaDetected = remember { com.example.service.BankingSecurityHelper.isCaixaInstalled(context) }
     val isUsbDebugging = remember { com.example.service.BankingSecurityHelper.isUsbDebuggingEnabled(context) }
 

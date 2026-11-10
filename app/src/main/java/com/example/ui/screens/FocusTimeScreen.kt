@@ -1,4 +1,5 @@
 package com.example.ui.screens
+import com.example.ui.tutorial.tutorialTarget
 import com.example.ui.theme.BlockyFontFamily
 
 import android.content.Context
@@ -103,11 +104,6 @@ import com.example.ui.components.DotMatrixPattern
 import com.example.ui.components.NothingCard
 import com.example.ui.components.cmfTextFieldColors
 
-import com.example.ui.theme.CmfBorder
-import com.example.ui.theme.CmfDark
-import com.example.ui.theme.CmfLightGray
-import com.example.ui.theme.CmfMutedText
-import com.example.ui.theme.CmfWhite
 import com.example.ui.theme.LocalCustomTextColor
 import com.example.ui.theme.LocalIsDarkTheme
 
@@ -231,10 +227,10 @@ fun FocusTimeScreen(
     }
 
     val isDark = LocalIsDarkTheme.current
-    val textColor = if (isDark) Color.White else CmfDark
-    val tabBg = if (isDark) Color(0xFF1B1B22) else CmfLightGray
-    val activeTabBg = if (isDark) Color(0xFF262630) else CmfWhite
-    val activeTabTextColor = if (isDark) Color.White else CmfDark
+    val textColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val tabBg = if (isDark) Color(0xFF1B1B22) else MaterialTheme.colorScheme.surfaceVariant
+    val activeTabBg = if (isDark) Color(0xFF262630) else MaterialTheme.colorScheme.surface
+    val activeTabTextColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -300,7 +296,7 @@ fun FocusTimeScreen(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = BlockyFontFamily,
-                            color = if (selectedTab == 0) activeTabTextColor else CmfMutedText
+                            color = if (selectedTab == 0) activeTabTextColor else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -309,7 +305,7 @@ fun FocusTimeScreen(
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (selectedTab == 1) activeTabBg else Color.Transparent)
-                            .clickable { selectedTab = 1 }
+                            .tutorialTarget("routines").clickable { selectedTab = 1 }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -318,7 +314,7 @@ fun FocusTimeScreen(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = BlockyFontFamily,
-                            color = if (selectedTab == 1) activeTabTextColor else CmfMutedText
+                            color = if (selectedTab == 1) activeTabTextColor else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -329,7 +325,7 @@ fun FocusTimeScreen(
                 if (selectedTab == 0) {
                     // --- TAB 1: BLOQUEAR O TELEFONE POR UM DETERMINADO TEMPO ---
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().testTag("focus_content"),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         // Unbreakable Warning Notice
@@ -338,7 +334,8 @@ fun FocusTimeScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFFFFF0ED))
+                                    .background(if (isDark) Color(0xFF2C1712) else Color(0xFFFFF0ED))
+                                    .testTag("focus_warning_card").tutorialTarget("focus")
                                     .border(1.5.dp, Color(0xFFFF4400), RoundedCornerShape(12.dp))
                                     .padding(14.dp)
                             ) {
@@ -363,7 +360,7 @@ fun FocusTimeScreen(
                                         Text(
                                             text = "Durante o Focus Time, o aparelho fica 100% inutilizável. NÃO existe como sair nem mesmo com a senha de segurança. Somente os 3 apps de emergência selecionados abaixo poderão ser abertos.",
                                             fontSize = 11.sp,
-                                            color = CmfDark,
+                                            color = MaterialTheme.colorScheme.onSurface,
                                             lineHeight = 16.sp
                                         )
                                     }
@@ -397,8 +394,8 @@ fun FocusTimeScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
-                                                    .background(CmfLightGray)
-                                                    .border(1.dp, CmfBorder, RoundedCornerShape(8.dp))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                                                     .clickable { showCustomDurationDialog = true }
                                                     .padding(horizontal = 10.dp, vertical = 8.dp),
                                                 contentAlignment = Alignment.Center
@@ -407,7 +404,7 @@ fun FocusTimeScreen(
                                                     Icon(
                                                         imageVector = Icons.Default.Edit,
                                                         contentDescription = "Tempo Personalizado",
-                                                        tint = CmfDark,
+                                                        tint = MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(14.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(4.dp))
@@ -415,7 +412,7 @@ fun FocusTimeScreen(
                                                         text = "Personalizar",
                                                         fontSize = 11.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = CmfDark
+                                                        color = MaterialTheme.colorScheme.onSurface
                                                     )
                                                 }
                                             }
@@ -424,8 +421,8 @@ fun FocusTimeScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .clip(RoundedCornerShape(8.dp))
-                                                    .background(CmfLightGray)
-                                                    .border(1.dp, CmfBorder, RoundedCornerShape(8.dp))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                                                     .clickable { showSavePresetDialog = true }
                                                     .padding(horizontal = 10.dp, vertical = 8.dp),
                                                 contentAlignment = Alignment.Center
@@ -434,7 +431,7 @@ fun FocusTimeScreen(
                                                     Icon(
                                                         imageVector = Icons.Default.BookmarkAdd,
                                                         contentDescription = "Criar Preset",
-                                                        tint = CmfDark,
+                                                        tint = MaterialTheme.colorScheme.onSurface,
                                                         modifier = Modifier.size(14.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(4.dp))
@@ -442,7 +439,7 @@ fun FocusTimeScreen(
                                                         text = "Salvar Preset",
                                                         fontSize = 11.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = CmfDark
+                                                        color = MaterialTheme.colorScheme.onSurface
                                                     )
                                                 }
                                             }
@@ -456,7 +453,7 @@ fun FocusTimeScreen(
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = BlockyFontFamily,
-                                        color = CmfMutedText
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
 
@@ -476,10 +473,10 @@ fun FocusTimeScreen(
                                                         modifier = Modifier
                                                             .weight(1f)
                                                             .clip(RoundedCornerShape(8.dp))
-                                                            .background(if (isSel) accentColor else CmfLightGray)
+                                                            .background(if (isSel) accentColor else MaterialTheme.colorScheme.surfaceVariant)
                                                             .border(
                                                                 width = 1.dp,
-                                                                color = if (isSel) accentColor else CmfBorder,
+                                                                color = if (isSel) accentColor else MaterialTheme.colorScheme.outline,
                                                                 shape = RoundedCornerShape(8.dp)
                                                             )
                                                             .clickable { durationMinutes = preset.minutes }
@@ -495,14 +492,14 @@ fun FocusTimeScreen(
                                                                 fontSize = 11.sp,
                                                                 fontWeight = FontWeight.Bold,
                                                                 fontFamily = BlockyFontFamily,
-                                                                color = if (isSel) Color.White else CmfDark
+                                                                color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface
                                                             )
                                                             if (!preset.isDefault) {
                                                                 Spacer(modifier = Modifier.width(4.dp))
                                                                 Icon(
                                                                     imageVector = Icons.Default.Close,
                                                                     contentDescription = "Excluir preset",
-                                                                    tint = if (isSel) Color.White.copy(alpha = 0.8f) else CmfMutedText,
+                                                                    tint = if (isSel) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant,
                                                                     modifier = Modifier
                                                                         .size(12.dp)
                                                                         .clickable {
@@ -535,56 +532,56 @@ fun FocusTimeScreen(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .background(CmfLightGray)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                                 .clickable {
                                                     durationMinutes = (durationMinutes - 15).coerceAtLeast(1)
                                                 }
                                                 .padding(vertical = 8.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text("-15m", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CmfDark)
+                                            Text("-15m", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                         }
 
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .background(CmfLightGray)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                                 .clickable {
                                                     durationMinutes = (durationMinutes + 15).coerceAtMost(1440)
                                                 }
                                                 .padding(vertical = 8.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text("+15m", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CmfDark)
+                                            Text("+15m", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                         }
 
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .background(CmfLightGray)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                                 .clickable {
                                                     durationMinutes = (durationMinutes + 30).coerceAtMost(1440)
                                                 }
                                                 .padding(vertical = 8.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text("+30m", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CmfDark)
+                                            Text("+30m", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                         }
 
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .background(CmfLightGray)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
                                                 .clickable {
                                                     durationMinutes = (durationMinutes + 60).coerceAtMost(1440)
                                                 }
                                                 .padding(vertical = 8.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text("+1h", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CmfDark)
+                                            Text("+1h", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                         }
                                     }
                                 }
@@ -594,6 +591,7 @@ fun FocusTimeScreen(
                         // Allowed Apps Selector Card
                         item {
                             NothingCard(
+                                modifier = Modifier.testTag("focus_allowed_apps_card"),
                                 title = "APPS LIBERADOS NO BLOQUEIO (MÁX 3)",
                                 badge = "${directAllowedApps.size}/3 LIBERADOS"
                             ) {
@@ -601,7 +599,7 @@ fun FocusTimeScreen(
                                     Text(
                                         text = "Apps que permanecerão liberados e acessíveis durante o bloqueio (limite máximo rigoroso de 3 aplicativos, ex: WhatsApp, Mensagens, Mapas ou Banco).",
                                         fontSize = 11.sp,
-                                        color = CmfMutedText,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         lineHeight = 16.sp
                                     )
 
@@ -612,14 +610,14 @@ fun FocusTimeScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0xFFF4F4F6))
-                                            .border(1.dp, CmfBorder, RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                                             .padding(horizontal = 10.dp, vertical = 8.dp)
                                     ) {
                                         Text(
                                             text = "📞 NOTA: O app de Telefone NÃO pode e não precisa ser selecionado aqui, pois ele já possui um botão permanente preto e branco fixo na tela de bloqueio.",
                                             fontSize = 10.sp,
-                                            color = CmfMutedText,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             lineHeight = 14.sp
                                         )
                                     }
@@ -651,7 +649,7 @@ fun FocusTimeScreen(
                                             Text(
                                                 text = "Recomendamos selecionar apenas aplicativos essenciais para emergências ou comunicação vital caso algo aconteça (ex: WhatsApp):",
                                                 fontSize = 10.sp,
-                                                color = CmfDark,
+                                                color = MaterialTheme.colorScheme.onSurface,
                                                 lineHeight = 14.sp
                                             )
 
@@ -678,8 +676,8 @@ fun FocusTimeScreen(
                                                             modifier = Modifier
                                                                 .fillMaxWidth()
                                                                 .clip(RoundedCornerShape(8.dp))
-                                                                .background(CmfWhite)
-                                                                .border(1.dp, if (isAlreadyAdded) Color(0xFF00C853) else CmfBorder, RoundedCornerShape(8.dp))
+                                                                .background(MaterialTheme.colorScheme.surface)
+                                                                .border(1.dp, if (isAlreadyAdded) Color(0xFF00C853) else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
                                                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                                                             horizontalArrangement = Arrangement.SpaceBetween,
                                                             verticalAlignment = Alignment.CenterVertically
@@ -688,8 +686,8 @@ fun FocusTimeScreen(
                                                                 AppIconImage(packageName = pkg, fallbackLetter = name.first().toString(), sizeDp = 24.dp)
                                                                 Spacer(modifier = Modifier.width(8.dp))
                                                                 Column {
-                                                                    Text(text = name, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = CmfDark)
-                                                                    Text(text = purpose, fontSize = 9.sp, color = CmfMutedText)
+                                                                    Text(text = name, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                                                                    Text(text = purpose, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                                 }
                                                             }
 
@@ -737,8 +735,8 @@ fun FocusTimeScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clip(RoundedCornerShape(10.dp))
-                                                    .background(CmfWhite)
-                                                    .border(1.dp, CmfBorder, RoundedCornerShape(10.dp))
+                                                    .background(MaterialTheme.colorScheme.surface)
+                                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
                                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
@@ -755,12 +753,12 @@ fun FocusTimeScreen(
                                                             text = displayName,
                                                             fontWeight = FontWeight.Bold,
                                                             fontSize = 13.sp,
-                                                            color = CmfDark
+                                                            color = MaterialTheme.colorScheme.onSurface
                                                         )
                                                         Text(
                                                             text = "Liberado durante o foco",
                                                             fontSize = 10.sp,
-                                                            color = CmfMutedText
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                                         )
                                                     }
                                                 }
@@ -787,8 +785,8 @@ fun FocusTimeScreen(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clip(RoundedCornerShape(10.dp))
-                                                    .background(CmfLightGray.copy(alpha = 0.6f))
-                                                    .border(1.dp, CmfBorder, RoundedCornerShape(10.dp))
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
                                                     .clickable { showAppPickerForDirect = true }
                                                     .padding(vertical = 12.dp),
                                                 contentAlignment = Alignment.Center
@@ -825,7 +823,7 @@ fun FocusTimeScreen(
                                     .height(54.dp)
                                     .testTag("start_focus_time_button"),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.Black,
+                                    containerColor = if (LocalIsDarkTheme.current) MaterialTheme.colorScheme.surfaceVariant else Color.Black,
                                     contentColor = Color.White
                                 ),
                                 shape = RoundedCornerShape(12.dp)
@@ -876,7 +874,7 @@ fun FocusTimeScreen(
                                     Text(
                                         text = "Bloqueie aplicativos em momentos específicos do dia",
                                         fontSize = 10.sp,
-                                        color = CmfMutedText
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
 
@@ -933,7 +931,7 @@ fun FocusTimeScreen(
                                             text = "Selecione um aplicativo para programar momentos do dia em que ele será bloqueado automaticamente.",
                                             fontSize = 10.sp,
                                             fontFamily = BlockyFontFamily,
-                                            color = CmfMutedText,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = TextAlign.Center,
                                             lineHeight = 15.sp
                                         )
@@ -1014,7 +1012,7 @@ fun FocusTimeScreen(
                                                         text = "${appRoutineList.size} rotina(s) de bloqueio",
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = CmfMutedText,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         fontFamily = BlockyFontFamily
                                                     )
                                                 }
@@ -1146,7 +1144,7 @@ fun FocusTimeScreen(
                                                 Text(
                                                     text = "${generalRoutines.size} rotina(s) geral",
                                                     fontSize = 10.sp,
-                                                    color = CmfMutedText
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
                                         }
@@ -1288,7 +1286,7 @@ fun FocusTimeScreen(
                                 Text(
                                     text = "Bloqueia aplicativos específicos selecionados (ex: YouTube, Instagram) em horários programados.",
                                     fontSize = 10.sp,
-                                    color = CmfMutedText
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -1318,7 +1316,7 @@ fun FocusTimeScreen(
                                 Text(
                                     text = "Bloqueia o celular de forma absoluta durante o horário programado (exceto exceções de emergência).",
                                     fontSize = 10.sp,
-                                    color = CmfMutedText
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -1397,7 +1395,7 @@ fun FocusTimeScreen(
                         text = "Seu telefone será bloqueado por ${formatMinutesToReadable(durationMinutes)}. Durante esse tempo, NÃO existirá forma de sair, nem mesmo com a sua senha de segurança. Apenas os ${directAllowedApps.size} apps selecionados poderão ser acessados.\n\nDeseja ativar agora?",
                         fontSize = 12.sp,
                         lineHeight = 18.sp,
-                        color = CmfDark
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 },
                 confirmButton = {
@@ -1410,7 +1408,7 @@ fun FocusTimeScreen(
                                 allowedPackages = directAllowedApps.toList()
                             )
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Black)
+                        colors = ButtonDefaults.buttonColors(containerColor = if (LocalIsDarkTheme.current) MaterialTheme.colorScheme.surfaceVariant else Color.Black)
                     ) {
                         Text("Sim, Bloquear", fontWeight = FontWeight.Bold, color = Color.White)
                     }
@@ -1458,7 +1456,7 @@ fun FocusTimeScreen(
                         fontWeight = FontWeight.Black,
                         fontFamily = BlockyFontFamily,
                         fontSize = 14.sp,
-                        color = CmfDark
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 },
                 text = {
@@ -1466,7 +1464,7 @@ fun FocusTimeScreen(
                         Text(
                             text = "Deseja salvar a duração atual (${formatMinutesToReadable(durationMinutes)}) como um preset de acesso rápido?",
                             fontSize = 12.sp,
-                            color = CmfMutedText,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp
                         )
                         Spacer(modifier = Modifier.height(12.dp))
@@ -1610,7 +1608,7 @@ fun AppRoutineDetailCard(
                 Text(
                     text = "${routine.formatTimeRange()} • ${routine.formatDays()}",
                     fontSize = 10.sp,
-                    color = CmfMutedText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontFamily = BlockyFontFamily
                 )
             }
@@ -1641,7 +1639,7 @@ fun AppRoutineDetailCard(
                     .padding(vertical = 8.dp, horizontal = 10.dp)
             ) {
                 Column {
-                    Text(text = "INÍCIO", fontSize = 8.sp, color = CmfMutedText, fontWeight = FontWeight.Bold)
+                    Text(text = "INÍCIO", fontSize = 8.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
                     Text(
                         text = String.format("%02d:%02d", routine.startHour, routine.startMinute),
                         fontSize = 14.sp,
@@ -1662,7 +1660,7 @@ fun AppRoutineDetailCard(
                     .padding(vertical = 8.dp, horizontal = 10.dp)
             ) {
                 Column {
-                    Text(text = "TÉRMINO", fontSize = 8.sp, color = CmfMutedText, fontWeight = FontWeight.Bold)
+                    Text(text = "TÉRMINO", fontSize = 8.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
                     Text(
                         text = String.format("%02d:%02d", routine.endHour, routine.endMinute),
                         fontSize = 14.sp,
@@ -1779,7 +1777,7 @@ fun RoutineWeekdayElevator(
                         .fillMaxWidth()
                         .height(92.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFFEBEBF0))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                         .padding(3.dp)
                 ) {
                     // Sliding Rectangle Block:
@@ -1820,7 +1818,7 @@ fun RoutineWeekdayElevator(
                     text = label,
                     fontSize = 8.sp,
                     fontFamily = BlockyFontFamily,
-                    color = if (isActive) CmfDark else Color.Gray,
+                    color = if (isActive) MaterialTheme.colorScheme.onSurface else Color.Gray,
                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
                 )
             }
@@ -1837,13 +1835,14 @@ fun RoutineTimelineRuler(
     accentColor: Color,
     modifier: Modifier = Modifier
 ) {
+    val tickColor = MaterialTheme.colorScheme.outline
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(28.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFFF0F0F4))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val totalMinutes = 1440f
@@ -1855,7 +1854,7 @@ fun RoutineTimelineRuler(
                     val x = (h * 60f / totalMinutes) * size.width
                     val tickHeight = if (h % 6 == 0) size.height * 0.5f else size.height * 0.25f
                     drawLine(
-                        color = Color(0xFFC8C8CE),
+                        color = tickColor,
                         start = Offset(x, size.height - tickHeight),
                         end = Offset(x, size.height),
                         strokeWidth = 1.5f
@@ -1899,11 +1898,11 @@ fun RoutineTimelineRuler(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("00h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = CmfMutedText)
-            Text("06h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = CmfMutedText)
-            Text("12h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = CmfMutedText)
-            Text("18h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = CmfMutedText)
-            Text("24h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = CmfMutedText)
+            Text("00h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("06h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("12h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("18h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("24h", fontSize = 8.sp, fontFamily = BlockyFontFamily, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -1956,8 +1955,8 @@ fun AppExceptionPickerDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(CmfWhite)
-                .border(1.5.dp, CmfDark, RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
                 .padding(18.dp)
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -1966,12 +1965,12 @@ fun AppExceptionPickerDialog(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = BlockyFontFamily,
-                    color = CmfDark
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "Jogos não podem ser selecionados. O Telefone já possui botão fixo na tela de bloqueio.",
                     fontSize = 10.sp,
-                    color = CmfMutedText,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontFamily = BlockyFontFamily
                 )
 
@@ -2050,7 +2049,7 @@ fun AppExceptionPickerDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (app.isGame) CmfLightGray.copy(alpha = 0.5f) else CmfLightGray)
+                                .background(if (app.isGame) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant)
                                 .clickable {
                                     if (app.isGame) {
                                         Toast.makeText(
@@ -2081,13 +2080,13 @@ fun AppExceptionPickerDialog(
                                         text = app.appName,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (app.isGame) Color.Gray else CmfDark
+                                        color = if (app.isGame) Color.Gray else MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
                                         text = if (app.isGame) "CATEGORIA: JOGO (BLOQUEADO)" else app.packageName,
                                         fontSize = 9.sp,
                                         fontFamily = BlockyFontFamily,
-                                        color = if (app.isGame) Color.Red else CmfMutedText
+                                        color = if (app.isGame) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -2095,7 +2094,7 @@ fun AppExceptionPickerDialog(
                             if (app.isGame) {
                                 Box(
                                     modifier = Modifier
-                                        .background(Color(0xFFFFEAEA), RoundedCornerShape(4.dp))
+                                        .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(4.dp))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
@@ -2116,7 +2115,7 @@ fun AppExceptionPickerDialog(
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = CmfDark),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text("Fechar", fontSize = 12.sp)
@@ -2176,7 +2175,7 @@ fun CreateRoutineDialog(
                     Text(
                         text = "Este aplicativo será bloqueado automaticamente nos horários programados.",
                         fontSize = 10.sp,
-                        color = CmfMutedText,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontFamily = BlockyFontFamily
                     )
                 }
@@ -2279,7 +2278,7 @@ fun CreateRoutineDialog(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = BlockyFontFamily,
-                    color = CmfMutedText
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -2304,7 +2303,7 @@ fun CreateRoutineDialog(
                         text = "Apps permitidos durante esta rotina (máx 3):",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = CmfMutedText
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -2318,7 +2317,7 @@ fun CreateRoutineDialog(
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(CmfLightGray)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2357,7 +2356,7 @@ fun CreateRoutineDialog(
                     Button(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = CmfLightGray, contentColor = CmfDark)
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurface)
                     ) {
                         Text("Cancelar")
                     }

@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.model.RequestStatus
 import com.example.service.FriendsPartyManager
+import com.example.service.PartyMessageSecurity
+import com.example.service.CloudPartyEvent
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -33,7 +36,7 @@ class FriendsPartyTest {
 
         val code = FriendsPartyManager.createParty(context, "Equipe Foco Total")
 
-        assertTrue(code.startsWith("LCK-"))
+        assertTrue(PartyMessageSecurity.isValidCode(code))
         assertTrue(FriendsPartyManager.isJoined.value)
 
         val state = FriendsPartyManager.partyState.value
@@ -45,12 +48,12 @@ class FriendsPartyTest {
         assertNotNull(host)
         assertTrue(host?.isHost == true)
         assertTrue(host?.respectPercentage ?: 0 >= 70)
-        assertTrue(host?.topApps?.isNotEmpty() == true)
+        assertTrue(host?.topApps?.isEmpty() == true) // No invented usage data.
     }
 
     @Test
     fun `test joining party with code adds friend and creates multi-user connection`() {
-        val joined = FriendsPartyManager.joinParty(context, "LCK-9999")
+        val joined = FriendsPartyManager.joinParty(context, "LCK2-" + "A".repeat(64))
         assertTrue(joined)
         assertTrue(FriendsPartyManager.isJoined.value)
 
@@ -58,7 +61,7 @@ class FriendsPartyTest {
 
         val state = FriendsPartyManager.partyState.value
         assertNotNull(state)
-        assertEquals("LCK-9999", state?.partyCode)
+        assertEquals("LCK2-" + "A".repeat(64), state?.partyCode)
         // Has buddy Marcos + joining user
         assertTrue((state?.members?.size ?: 0) >= 2)
 
@@ -89,7 +92,7 @@ class FriendsPartyTest {
         assertFalse(FriendsPartyManager.isPackageTemporarilyAllowed("com.instagram.android"))
 
         // Friend Lucas approves
-        val resolved = FriendsPartyManager.respondToInstallRequest(context, req!!.requestId, approved = true)
+        val resolved = resolveAsFriend("ACTION_RESOLVE_INSTALL", req!!.requestId, true)
         assertTrue(resolved)
 
         // Now package is temporarily allowed!
@@ -110,7 +113,7 @@ class FriendsPartyTest {
         assertNotNull(req)
 
         // Friend Lucas rejects
-        FriendsPartyManager.respondToInstallRequest(context, req!!.requestId, approved = false)
+        resolveAsFriend("ACTION_RESOLVE_INSTALL", req!!.requestId, false)
 
         // Must remain NOT allowed
         assertFalse(FriendsPartyManager.isPackageTemporarilyAllowed("com.zhiliaoapp.musically"))
@@ -141,7 +144,7 @@ class FriendsPartyTest {
         // Once the request is resolved (e.g. rejected by friend)
         val state = FriendsPartyManager.partyState.value!!
         val pending = state.pendingInstallRequests.first()
-        FriendsPartyManager.respondToInstallRequest(context, pending.requestId, approved = false)
+        resolveAsFriend("ACTION_RESOLVE_INSTALL", pending.requestId, false)
 
         assertFalse(FriendsPartyManager.hasPendingInstallRequest())
     }
@@ -164,7 +167,7 @@ class FriendsPartyTest {
         assertEquals(RequestStatus.PENDING, leaveReq?.status)
 
         // Friend Lucas approves the leave request
-        FriendsPartyManager.respondToLeaveRequest(context, leaveReq!!.requestId, approved = true)
+        resolveAsFriend("ACTION_RESOLVE_LEAVE", leaveReq!!.requestId, true)
 
         // Now user is unpaired!
         assertFalse(FriendsPartyManager.isJoined.value)
@@ -182,7 +185,7 @@ class FriendsPartyTest {
         assertNotNull(leaveReq)
 
         // Friend Beatriz rejects the leave request
-        FriendsPartyManager.respondToLeaveRequest(context, leaveReq!!.requestId, approved = false)
+        resolveAsFriend("ACTION_RESOLVE_LEAVE", leaveReq!!.requestId, false)
 
         // User remains in party
         assertTrue(FriendsPartyManager.isJoined.value)
@@ -191,7 +194,7 @@ class FriendsPartyTest {
 
     @Test
     fun `test members share screen time and adherence statistics`() {
-        FriendsPartyManager.joinParty(context, "LCK-5555")
+        FriendsPartyManager.joinParty(context, "LCK2-" + "B".repeat(64))
         FriendsPartyManager.addSimulatedFriend(
             context = context,
             name = "Beatriz",
@@ -214,11 +217,11 @@ class FriendsPartyTest {
     }
 
     @Test
-    fun `test code normalization converts 4 digits to LCK prefix`() {
-        assertEquals("LCK-1234", FriendsPartyManager.normalizeCode("1234"))
-        assertEquals("LCK-9999", FriendsPartyManager.normalizeCode("LCK-9999"))
-        assertEquals("LCK-5678", FriendsPartyManager.normalizeCode("  lck-5678  "))
-        assertEquals("LCK-4321", FriendsPartyManager.normalizeCode("4321"))
+    fun `test invitation normalization and legacy rejection`() {
+        val code = "LCK2-" + "A".repeat(64)
+        assertEquals(code, FriendsPartyManager.normalizeCode("  ${code.lowercase()}  "))
+        assertFalse(FriendsPartyManager.joinParty(context, "1234"))
+        assertFalse(FriendsPartyManager.joinParty(context, "LCK-1234"))
     }
 
     @Test
@@ -234,11 +237,7 @@ class FriendsPartyTest {
         assertNotNull(req)
 
         // Approve with 15 minutes limit
-        val approved = FriendsPartyManager.respondToInstallRequest(
-            context = context,
-            requestId = req!!.requestId,
-            approved = true
-        )
+        val approved = resolveAsFriend("ACTION_RESOLVE_INSTALL", req!!.requestId, true)
         assertTrue(approved)
         assertTrue(FriendsPartyManager.isPackageTemporarilyAllowed("com.snapchat.android"))
 
@@ -279,5 +278,14 @@ class FriendsPartyTest {
         assertTrue(group.containsPackage("com.twitter.android"))
         assertFalse(group.containsPackage("com.google.android.youtube"))
     }
+    private fun resolveAsFriend(action: String, requestId: String, approved: Boolean): Boolean {
+        val friend = FriendsPartyManager.partyState.value!!.members.first { it.userId != FriendsPartyManager.getMyUserId() }
+        FriendsPartyManager.processIncomingCloudEvent(context, CloudPartyEvent(
+            "test-$requestId", System.currentTimeMillis(), action, friend.userId,
+            JSONObject().put("requestId", requestId).put("status", if (approved) "APPROVED" else "REJECTED")
+        ))
+        return true
+    }
+
 }
 

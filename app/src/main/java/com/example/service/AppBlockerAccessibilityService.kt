@@ -68,6 +68,7 @@ class AppBlockerAccessibilityService : AccessibilityService() {
     }
 
     private var lastActionEpoch = 0L
+    private val scanBudget = NodeScanBudget()
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onServiceConnected() {
@@ -93,6 +94,8 @@ class AppBlockerAccessibilityService : AccessibilityService() {
                 return
             }
 
+            lastActionEpoch = now
+            scanBudget.reset()
             val rootNode = rootInActiveWindow ?: event.source ?: return
 
             // 1. Retrieve the active blacklist (from PlayStoreBlacklistManager or fallback)
@@ -164,6 +167,7 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             }
 
             for (i in 0 until node.childCount) {
+                if (!scanBudget.tryAcquire()) break
                 val child = try { node.getChild(i) } catch (_: Exception) { null } ?: continue
                 try {
                     collectNodeTexts(child, texts, depth + 1)

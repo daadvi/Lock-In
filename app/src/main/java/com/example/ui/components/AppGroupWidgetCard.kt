@@ -73,7 +73,7 @@ fun AppGroupWidgetCard(
     )
 
     val surfaceBg = MaterialTheme.colorScheme.surface
-    val borderCol = if (isZero) accentColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    val borderCol = if (isZero) accentColor else MaterialTheme.colorScheme.outlineVariant
     val textColor = MaterialTheme.colorScheme.onSurface
 
     Box(

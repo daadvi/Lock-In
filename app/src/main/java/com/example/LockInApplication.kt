@@ -17,6 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import android.os.Handler
 import android.os.Looper
 
@@ -35,17 +37,12 @@ class LockInApplication : Application() {
         super.onCreate()
         instance = this
 
-        // Global Crash Shield: Logs and absorbs non-fatal background/runtime exceptions
-        // without nesting Looper loops, preventing system ANRs and crash dialogs.
-        try {
-            val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
-            Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-                android.util.Log.e("LockInCrashShield", "Intercepted uncaught exception on thread ${thread.name}: ${throwable.message}", throwable)
-                if (throwable is VirtualMachineError || throwable is OutOfMemoryError) {
-                    defaultHandler?.uncaughtException(thread, throwable)
-                }
-            }
-        } catch (_: Exception) {}
+        // Preserve Android's crash reporting and process shutdown after recording the error.
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            android.util.Log.e("LockInApplication", "Uncaught exception on ${thread.name}", throwable)
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
 
         com.example.service.BankingSecurityHelper.init(this)
         com.example.service.StreakManager.init(this)
@@ -60,6 +57,13 @@ class LockInApplication : Application() {
         com.example.service.FriendsPartyManager.init(this)
         com.example.service.DailyResetManager.checkResetIfDue(this)
         com.example.service.DailyResetManager.scheduleMidnightAlarm(this)
+        applicationScope.launch {
+            combine(userPreferences.isRegistered, userPreferences.streakReminders) { registered, enabled ->
+                registered && enabled
+            }.distinctUntilChanged().collect {
+                com.example.service.FocusReminder.updateSchedule(this@LockInApplication)
+            }
+        }
 
         if (com.example.service.LockInVpnManager.isVpnEnabled.value && !com.example.service.LockInVpnManager.isPermissionRequired(this)) {
             com.example.service.LockInVpnManager.startVpn(this)

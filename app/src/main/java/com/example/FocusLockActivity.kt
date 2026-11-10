@@ -471,7 +471,8 @@ private fun launchAllowedApp(context: Context, packageName: String) {
         if (intent != null) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
             val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
-            if (context is android.app.Activity && km != null && km.isKeyguardLocked) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                context is android.app.Activity && km != null && km.isKeyguardLocked) {
                 km.requestDismissKeyguard(context, object : android.app.KeyguardManager.KeyguardDismissCallback() {
                     override fun onDismissSucceeded() {
                         try {
@@ -510,7 +511,8 @@ private fun launchDialer(context: Context) {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
-        if (context is android.app.Activity && km != null && km.isKeyguardLocked) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                context is android.app.Activity && km != null && km.isKeyguardLocked) {
             km.requestDismissKeyguard(context, object : android.app.KeyguardManager.KeyguardDismissCallback() {
                 override fun onDismissSucceeded() {
                     try {

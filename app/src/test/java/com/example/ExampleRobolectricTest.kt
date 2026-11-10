@@ -107,11 +107,12 @@ class ExampleRobolectricTest {
 
   @Test
   fun `device admin uninstall authorization state`() {
-    DeviceAdminManager.isUninstallAuthorized = false
-    assertFalse(DeviceAdminManager.isUninstallAuthorized)
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    DeviceAdminManager.setUninstallAuthorized(context, false)
+    assertFalse(DeviceAdminManager.isUninstallAuthorized(context))
 
-    DeviceAdminManager.isUninstallAuthorized = true
-    assertTrue(DeviceAdminManager.isUninstallAuthorized)
+    DeviceAdminManager.setUninstallAuthorized(context, true)
+    assertTrue(DeviceAdminManager.isUninstallAuthorized(context))
   }
 
   @Test

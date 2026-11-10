@@ -8,6 +8,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.addCallback
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.togetherWith
@@ -222,7 +223,8 @@ class BlockedActivity : ComponentActivity() {
         }
 
         setContent {
-            LockInTheme(customTextColor = customColor) {
+            val themeMode by prefs.themeMode.collectAsStateWithLifecycle()
+            LockInTheme(customTextColor = customColor, themeMode = themeMode) {
                 BlockedScreen(
                     blockedTarget = appNameState.value,
                     prohibitedPackage = packageNameState.value,

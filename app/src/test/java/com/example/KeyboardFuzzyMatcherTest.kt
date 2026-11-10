@@ -22,6 +22,19 @@ class KeyboardFuzzyMatcherTest {
         assertTrue(KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(inputMixed, target))
     }
 
+    @Test fun allSavedLevelPhrasesIgnoreCaseEvenWithTurkishDeviceLocale() {
+        val previous = java.util.Locale.getDefault()
+        try {
+            java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"))
+            com.example.data.model.LockLevel.entries.forEach { level ->
+                val phrase = level.requiredPhrase
+                assertTrue(KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(phrase.uppercase(java.util.Locale.ROOT), phrase))
+                assertTrue(KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(phrase.lowercase(java.util.Locale.ROOT), phrase))
+                assertFalse(KeyboardFuzzyMatcher.matchesWithKeyboardTolerance("outra frase totalmente diferente", phrase))
+            }
+        } finally { java.util.Locale.setDefault(previous) }
+    }
+
     @Test
     fun testAccentTolerance() {
         val target = "Não vou procrastinar agora"
