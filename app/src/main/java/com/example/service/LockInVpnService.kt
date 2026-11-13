@@ -54,13 +54,41 @@ class LockInVpnService : VpnService() {
 
         /**
          * Decisão única de bloqueio de rede para qualquer DNS query, de qualquer navegador
-         * ou app (inclusive webviews): lista de sites, blacklist de instalação e apps
-         * com limite esgotado.
+         * ou app (inclusive webviews): lista de sites, blacklist de instalação, apps
+         * com limite esgotado e provedores de DNS-over-HTTPS (bypass do sinkhole).
          */
         fun isDomainBlockedForNetwork(domain: String): Boolean {
             if (PlayStoreBlacklistManager.isWebsiteBlacklistedByInstallationBlacklist(domain) != null) return true
-            return isDomainBelongingToDepletedApp(domain)
+            if (isDomainBelongingToDepletedApp(domain)) return true
+            if (isSomethingBlocked() && isDohProviderDomain(domain)) return true
+            return false
         }
+
+        /**
+         * Provedores de DNS-over-HTTPS. Navegadores com "DNS seguro" (Chrome, Edge,
+         * Firefox, Brave) resolvem por eles em HTTPS, fora do DNS do sistema — o
+         * sinkhole nunca veria a consulta do domínio bloqueado. Bloquear o provedor
+         * força o fallback para o DNS do sistema, que passa pelo túnel.
+         * Só age quando há regra ativa: sem bloqueio nenhum, o DoH do usuário fica intacto.
+         */
+        private val DOH_PROVIDER_DOMAINS = listOf(
+            "dns.google", "dns.google.dns", "chrome.cloudflare-dns.com",
+            "mozilla.cloudflare-dns.com", "cloudflare-dns.com", "doh.opendns.com",
+            "doh.cleanbrowsing.org", "doh.dns.apple.com", "dns.quad9.net",
+            "dns.nextdns.io", "dns.adguard.com", "doh.mullvad.net", "dns.switch.ch",
+            "dns.controld.com", "doh.libredns.gr", "dns.alidns.com", "doh.pub"
+        )
+
+        private fun isDohProviderDomain(domain: String): Boolean {
+            val lower = domain.lowercase()
+            return DOH_PROVIDER_DOMAINS.any { lower == it || lower.endsWith(".$it") }
+        }
+
+        /** Há alguma regra de bloqueio ativa? (evita castrar DoH sem motivo) */
+        private fun isSomethingBlocked(): Boolean =
+            WebsiteBlacklistManager.blacklistedWebsites.value.isNotEmpty() ||
+                PlayStoreBlacklistManager.blacklistedApps.value.isNotEmpty() ||
+                LockInVpnManager.depletedPackages.value.isNotEmpty()
 
         fun isDomainBelongingToDepletedApp(domain: String): Boolean {
             val depleted = LockInVpnManager.depletedPackages.value
