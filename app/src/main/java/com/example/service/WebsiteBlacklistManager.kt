@@ -26,6 +26,7 @@ object WebsiteBlacklistManager {
         "betano.com",
         "blaze.com",
         "tiktok.com",
+        "kwai.com",
         "twitter.com",
         "x.com",
         "instagram.com",

@@ -52,6 +52,8 @@ class LockInApplication : Application() {
         com.example.service.AppBlockEnforcer.initialize(this)
         com.example.service.PlayStoreBlacklistManager.initialize(this)
         com.example.service.WebsiteBlacklistManager.initialize(this)
+        // Catch-up: apps já existentes na blacklist de instalação têm seus sites bloqueados
+        com.example.service.PlayStoreBlacklistManager.syncBlockedAppWebsites(this)
         com.example.service.LockInVpnManager.initialize(this)
         com.example.service.CloudSyncManager.initialize(this)
         com.example.service.FriendsPartyManager.init(this)

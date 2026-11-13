@@ -51,6 +51,36 @@ class LockInVpnService : VpnService() {
         private const val VPN_DNS_SERVER = "10.10.0.2"
         private const val UPSTREAM_DNS_PRIMARY = "1.1.1.1"
         private const val UPSTREAM_DNS_SECONDARY = "8.8.8.8"
+
+        /**
+         * Decisão única de bloqueio de rede para qualquer DNS query, de qualquer navegador
+         * ou app (inclusive webviews): lista de sites, blacklist de instalação e apps
+         * com limite esgotado.
+         */
+        fun isDomainBlockedForNetwork(domain: String): Boolean {
+            if (PlayStoreBlacklistManager.isWebsiteBlacklistedByInstallationBlacklist(domain) != null) return true
+            return isDomainBelongingToDepletedApp(domain)
+        }
+
+        fun isDomainBelongingToDepletedApp(domain: String): Boolean {
+            val depleted = LockInVpnManager.depletedPackages.value
+            if (depleted.isEmpty()) return false
+
+            val lower = domain.lowercase()
+            for (pkg in depleted) {
+                when {
+                    pkg.contains("instagram") && (lower.contains("instagram") || lower.contains("cdninstagram")) -> return true
+                    pkg.contains("tiktok") && (lower.contains("tiktok") || lower.contains("byteoversea") || lower.contains("ibytedtos")) -> return true
+                    (pkg.contains("kwai") || pkg.contains("kuaishou")) && (lower.contains("kwai") || lower.contains("kuaishou")) -> return true
+                    pkg.contains("youtube") && (lower.contains("youtube") || lower.contains("googlevideo") || lower.contains("ytimg")) -> return true
+                    pkg.contains("twitter") && (lower.contains("twitter") || lower.contains("twimg") || lower.contains("x.com")) -> return true
+                    pkg.contains("pinterest") && (lower.contains("pinterest") || lower.contains("pinimg")) -> return true
+                    pkg.contains("facebook") && (lower.contains("facebook") || lower.contains("fbcdn")) -> return true
+                    pkg.contains("reddit") && (lower.contains("reddit") || lower.contains("redditmedia")) -> return true
+                }
+            }
+            return false
+        }
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -228,13 +258,12 @@ class LockInVpnService : VpnService() {
     ) {
         val queryDomain = parseDnsQuestionDomain(packet, dnsOffset, dnsLen)
         val isBlocked = if (queryDomain != null) {
-            val blockedByWebsite = WebsiteBlacklistManager.isWebsiteBlacklisted(queryDomain)
-            if (blockedByWebsite != null) {
+            if (WebsiteBlacklistManager.isWebsiteBlacklisted(queryDomain) != null) {
                 LockInVpnManager.recordBlockedQuery(this, queryDomain)
                 true
             } else {
-                // Check if belongs to depleted app domains
-                isDomainBelongingToDepletedApp(queryDomain)
+                // Lista de sites + blacklist de instalação + domínios de apps esgotados
+                isDomainBlockedForNetwork(queryDomain)
             }
         } else false
 
@@ -304,25 +333,6 @@ class LockInVpnService : VpnService() {
                 } catch (_: Exception) {}
             }
         }
-    }
-
-    private fun isDomainBelongingToDepletedApp(domain: String): Boolean {
-        val depleted = LockInVpnManager.depletedPackages.value
-        if (depleted.isEmpty()) return false
-
-        val lower = domain.lowercase()
-        for (pkg in depleted) {
-            when {
-                pkg.contains("instagram") && (lower.contains("instagram") || lower.contains("cdninstagram")) -> return true
-                pkg.contains("tiktok") && (lower.contains("tiktok") || lower.contains("byteoversea") || lower.contains("ibytedtos")) -> return true
-                pkg.contains("youtube") && (lower.contains("youtube") || lower.contains("googlevideo") || lower.contains("ytimg")) -> return true
-                pkg.contains("twitter") && (lower.contains("twitter") || lower.contains("twimg") || lower.contains("x.com")) -> return true
-                pkg.contains("pinterest") && (lower.contains("pinterest") || lower.contains("pinimg")) -> return true
-                pkg.contains("facebook") && (lower.contains("facebook") || lower.contains("fbcdn")) -> return true
-                pkg.contains("reddit") && (lower.contains("reddit") || lower.contains("redditmedia")) -> return true
-            }
-        }
-        return false
     }
 
     private fun parseDnsQuestionDomain(packet: ByteArray, dnsOffset: Int, dnsLen: Int): String? =

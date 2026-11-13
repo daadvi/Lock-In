@@ -8,6 +8,7 @@ import com.example.LockInApplication
 import com.example.data.local.AppGroupEntity
 import com.example.data.local.RestrictedAppEntity
 import com.example.data.local.RestrictedWebsiteEntity
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class ActiveSessionState(
     val isRunning: Boolean = false,
@@ -55,6 +57,9 @@ object LimitTimerManager {
     private var isCacheInitialized: Boolean = false
     @Volatile
     private var currentSwitchJob: Job? = null
+    @Volatile
+    private var pendingStopSaveJob: Job? = null
+    private val cacheReady = CompletableDeferred<Unit>()
 
     /**
      * Initializes real-time reactive in-memory cache of monitored packages.
@@ -86,6 +91,7 @@ object LimitTimerManager {
         monitored.addAll(cachedGroupsList.flatMap { it.getPackageList() })
         cachedMonitoredPackages = monitored
         isCacheInitialized = true
+        cacheReady.complete(Unit)
     }
 
     fun isPackageMonitored(packageName: String): Boolean {
@@ -126,9 +132,12 @@ object LimitTimerManager {
             return
         }
 
-        // If already in paused state for this exact package and isPaused is still true, do not re-pause repeatedly
+        // If already suspended (paused video OR feed with no video playing) for this exact
+        // package+mode+PiP, keep the state instead of re-emitting it on every event
         if (currentState.isRunning && isCurrentlyPaused && currentState.packageName == packageName &&
-            currentState.isShortVideo == isShortVideo && isPaused) {
+            currentState.isShortVideo == isShortVideo &&
+            currentState.isPictureInPicture == isPictureInPicture &&
+            (isPaused || !isVideoActive)) {
             return
         }
 
@@ -143,6 +152,11 @@ object LimitTimerManager {
         currentSwitchJob?.cancel()
         currentSwitchJob = app.applicationScope.launch {
             if (!isActive) return@launch
+            // Wait briefly for the Room caches so a freshly started process does not treat
+            // monitored apps as unmonitored (startup race)
+            withTimeoutOrNull(2000L) { cacheReady.await() }
+            // Join the pending stop-save so a quick re-entry reads the freshly persisted remaining
+            pendingStopSaveJob?.let { runCatching { it.join() } }
             // 1. If transitioning from an active running session, save its elapsed time first
             if (currentState.isRunning && currentState.remainingSeconds > 0) {
                 saveSessionProgress(currentState)
@@ -293,10 +307,41 @@ object LimitTimerManager {
                 return@launch
             }
 
-            // Check if user is inside a video-limited app with no video playing
+            // User is inside a video-limited app but no video is playing (feed, app
+            // transition, stale window): suspend the countdown but KEEP THE ISLAND VISIBLE
+            // so it never vanishes inside a limited app. Time only counts once a video is
+            // actually detected (then the state switches from Pausado back to running).
             if (matchedApp != null && !matchedApp.useAbsoluteTime && !isVideoActive) {
-                // User is inside the app, but no video is open or played.
-                stopTimer(context)
+                // Show the pool most likely to be consumed next
+                val suspendedRemaining = when {
+                    matchedApp.shortVideoLimitMinutes > 0 -> matchedApp.shortVideoRemainingSeconds
+                    matchedApp.longVideoLimitMinutes > 0 -> matchedApp.longVideoRemainingSeconds
+                    else -> remainingSec
+                }
+                val suspendedLimit = when {
+                    matchedApp.shortVideoLimitMinutes > 0 -> matchedApp.shortVideoLimitMinutes * 60L
+                    matchedApp.longVideoLimitMinutes > 0 -> matchedApp.longVideoLimitMinutes * 60L
+                    else -> totalLimit
+                }
+                if (suspendedRemaining > 0L) {
+                    stopTickerOnly()
+                    _sessionState.value = ActiveSessionState(
+                        isRunning = true,
+                        packageName = packageName,
+                        appName = "$baseName ($typeSuffix - Pausado)",
+                        isShortVideo = isShortVideo,
+                        isPictureInPicture = isPictureInPicture,
+                        websiteDomain = urlDomain,
+                        remainingSeconds = suspendedRemaining,
+                        totalLimitSeconds = suspendedLimit,
+                        isBlocked = false,
+                        isAppGroup = matchedGroup != null,
+                        appGroupName = matchedGroup?.name
+                    )
+                    FloatingIslandService.showIsland(context)
+                } else {
+                    stopTimer(context)
+                }
                 return@launch
             }
 
@@ -532,12 +577,16 @@ object LimitTimerManager {
     }
 
     internal fun stopTimer(context: Context, persistenceScope: CoroutineScope = scope) {
+        // Cancel an in-flight switch job so it cannot resurrect a session+island after we stop
+        currentSwitchJob?.cancel()
+        currentSwitchJob = null
         val current = _sessionState.value
         val group = currentGroup
         val app = currentApp
         val website = currentWebsite
         if (current.isRunning) {
-            persistenceScope.launch {
+            pendingStopSaveJob?.cancel()
+            pendingStopSaveJob = persistenceScope.launch {
                 saveRemainingTime(current.remainingSeconds, current, group, app, website)
             }
         }

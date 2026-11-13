@@ -88,6 +88,8 @@ object FocusReminder {
 class FocusReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == FocusReminder.ACTION_REMIND) FocusReminder.showIfEnabled(context)
+        // Clock/timezone changes (and boot) can invalidate routine start alarms.
+        FocusTimeManager.scheduleRoutineAlarms(context)
         FocusReminder.updateSchedule(context)
     }
 }

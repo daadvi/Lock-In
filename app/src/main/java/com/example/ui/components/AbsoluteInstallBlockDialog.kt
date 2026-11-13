@@ -26,7 +26,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
@@ -67,6 +66,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.app.NotificationCompat
+import com.example.data.model.LockLevel
 import com.example.service.CloudSyncManager
 import com.example.ui.theme.CmfBorder
 import com.example.ui.theme.CmfDark
@@ -77,9 +77,6 @@ import com.example.ui.theme.LocalIsDarkTheme
 import com.example.util.EmptyTextToolbar
 import com.example.util.isManualTyping
 import kotlin.random.Random
-
-private const val REQUIRED_LONG_MOTIVATIONAL_PHRASE =
-    "Eu realmente quero instalar um dos apps da lista de bloqueio e tenho consciência das minhas ações e compreendo que posso estar fazendo algo errado!"
 
 @Composable
 fun AbsoluteInstallBlockDialog(
@@ -94,8 +91,9 @@ fun AbsoluteInstallBlockDialog(
     val userPrefs = app.userPreferences
     val currentLockLevel by userPrefs.lockLevel.collectAsState()
     val targetPassCount = currentLockLevel.passwordRepeatCount
+    val targetPhrase = currentLockLevel.requiredPhrase
+    val isDevDream = currentLockLevel == LockLevel.DEV_DREAM
 
-    val quickBypassesRemaining by userPrefs.absoluteBlockQuickBypassesRemaining.collectAsState()
     val cardBg = if (isDark) Color(0xFF18181B) else CmfWhite
     val textColor = if (isDark) Color.White else CmfDark
     val subtextColor = if (isDark) Color(0xFFA1A1AA) else CmfMutedText
@@ -262,7 +260,7 @@ fun AbsoluteInstallBlockDialog(
                             )
 
                             Text(
-                                text = "• Caso tenha ativado por engano ou para testar, você terá 2 desativações rápidas sem complicação.\n\n• Ao esgotar as 2 tentativas de teste, para desativar este modo será OBRIGATÓRIO digitar sua senha $targetPassCount vez${if (targetPassCount > 1) "es seguidas" else ""} sem errar, digitar uma frase motivacional extensa e digitar uma chave de 8 caracteres enviada para o seu e-mail (sem poder copiar e colar).",
+                                text = "• Para desativar este modo será OBRIGATÓRIO digitar sua senha $targetPassCount vez${if (targetPassCount > 1) "es seguidas" else ""} sem errar, digitar a frase do seu nível de lock (${currentLockLevel.title}) e digitar uma chave de 8 caracteres enviada para o seu e-mail (sem poder copiar e colar).\n\n• No nível ${LockLevel.DEV_DREAM.title} a desativação é impossível: a lista de bloqueio de instalação é permanente.",
                                 fontSize = 11.5.sp,
                                 color = subtextColor,
                                 lineHeight = 17.sp
@@ -290,7 +288,7 @@ fun AbsoluteInstallBlockDialog(
                             )
                         }
                     } else {
-                        // Deactivation Flow (with Quick Bypass check + 3 Stages)
+                        // Deactivation Flow: permanent at Dev Dream, otherwise the level-scaled ritual
                         CompositionLocalProvider(LocalTextToolbar provides EmptyTextToolbar) {
                             Column(
                                 modifier = Modifier
@@ -298,91 +296,47 @@ fun AbsoluteInstallBlockDialog(
                                     .verticalScroll(rememberScrollState()),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                // 1. Quick Bypass banner (if remaining > 0)
-                                if (quickBypassesRemaining > 0) {
+                                if (isDevDream) {
+                                    // Nível Sonho do Dev: não existe forma de desativar
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(12.dp))
-                                            .background(Color(0xFF10B981).copy(alpha = 0.12f))
-                                            .border(1.dp, Color(0xFF10B981), RoundedCornerShape(12.dp))
-                                            .padding(14.dp)
+                                            .background(Color(0xFFEF4444).copy(alpha = 0.12f))
+                                            .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(12.dp))
+                                            .padding(16.dp)
                                     ) {
                                         Column {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Default.CheckCircle,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFF10B981),
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = "MODO TESTE / ENGANO DISPONÍVEL",
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    color = Color(0xFF10B981)
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(6.dp))
                                             Text(
-                                                text = "Caso você tenha ativado essa opção sem querer ou só para testar, você pode desativá-la agora sem precisar digitar senhas, frases ou e-mail.",
-                                                fontSize = 11.sp,
+                                                text = "NÍVEL SONHO DO DEV: BLOQUEIO PERMANENTE",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Black,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = Color(0xFFEF4444)
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "No nível máximo de lock não é possível desativar o Bloqueio Absoluto. Nenhum aplicativo poderá ser removido da sua lista de bloqueio de instalação enquanto você estiver neste nível.",
+                                                fontSize = 11.5.sp,
                                                 color = textColor,
-                                                lineHeight = 15.sp
+                                                lineHeight = 17.sp
                                             )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = "Restam $quickBypassesRemaining de 2 desativações rápidas.",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF10B981),
-                                                fontFamily = FontFamily.Monospace
-                                            )
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                            Button(
-                                                onClick = {
-                                                    val success = userPrefs.useQuickAbsoluteBlockBypass()
-                                                    if (success) {
-                                                        onStateChanged(false)
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Bloqueio desativado em modo de teste! (Restam ${quickBypassesRemaining - 1} usos rápidos)",
-                                                            Toast.LENGTH_LONG
-                                                        ).show()
-                                                        onDismiss()
-                                                    }
-                                                },
-                                                modifier = Modifier.fillMaxWidth().height(44.dp),
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "DESATIVAR IMEDIATAMENTE (TESTE)",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontSize = 11.sp,
-                                                    color = Color.White
-                                                )
-                                            }
                                         }
                                     }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
+                                    Button(
+                                        onClick = onDismiss,
+                                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = CmfDark),
+                                        shape = RoundedCornerShape(10.dp)
                                     ) {
-                                        Box(modifier = Modifier.weight(1f).height(1.dp).background(borderColor))
                                         Text(
-                                            text = "  OU DESAFIO RITUAL RIGOROSO  ",
-                                            fontSize = 9.5.sp,
+                                            text = "ENTENDIDO",
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = FontFamily.Monospace,
-                                            color = subtextColor
+                                            color = Color.White
                                         )
-                                        Box(modifier = Modifier.weight(1f).height(1.dp).background(borderColor))
                                     }
+                                    return@Column
                                 }
 
                                 // 3 Stages Indicator
@@ -390,7 +344,7 @@ fun AbsoluteInstallBlockDialog(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.Center
                                 ) {
-                                    val stages = listOf("1. SENHA ${targetPassCount}X", "2. FRASE EXTENSA", "3. E-MAIL 8 DÍGITOS")
+                                    val stages = listOf("1. SENHA ${targetPassCount}X", "2. FRASE DO NÍVEL", "3. E-MAIL 8 DÍGITOS")
                                     stages.forEachIndexed { index, label ->
                                         val stageNum = index + 1
                                         val isDone = deactivationStage > stageNum
@@ -560,9 +514,9 @@ fun AbsoluteInstallBlockDialog(
                                     }
 
                                     2 -> {
-                                        // Stage 2: Long Motivational Phrase
+                                        // Stage 2: Phrase required by the current lock level
                                         Text(
-                                            text = "ETAPA 2: DIGITE A FRASE MOTIVACIONAL COMPLETA",
+                                            text = "ETAPA 2: DIGITE A FRASE DO NÍVEL ${currentLockLevel.title.uppercase(java.util.Locale.ROOT)}",
                                             fontSize = 11.5.sp,
                                             fontWeight = FontWeight.Black,
                                             fontFamily = FontFamily.Monospace,
@@ -582,7 +536,7 @@ fun AbsoluteInstallBlockDialog(
                                                 .padding(12.dp)
                                         ) {
                                             Text(
-                                                text = "\"$REQUIRED_LONG_MOTIVATIONAL_PHRASE\"",
+                                                text = "\"$targetPhrase\"",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = textColor,
@@ -616,7 +570,7 @@ fun AbsoluteInstallBlockDialog(
 
                                         Button(
                                             onClick = {
-                                                if (com.example.util.KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(phraseInput, REQUIRED_LONG_MOTIVATIONAL_PHRASE)) {
+                                                if (com.example.util.KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(phraseInput, targetPhrase)) {
                                                     deactivationStage = 3
                                                     errorMessage = null
                                                 } else {

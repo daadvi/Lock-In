@@ -248,7 +248,7 @@ fun WebsiteBlacklistDialog(
                             .weight(1f)
                             .testTag("website_blacklist_input"),
                         placeholder = {
-                            Text("Ex: bet365.com, tiktok.com...", fontSize = 13.sp, color = CmfMutedText)
+                            Text("Ex: bet365.com, tiktok.com, kwai.com...", fontSize = 13.sp, color = CmfMutedText)
                         },
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(

@@ -150,6 +150,19 @@ object CloudSyncManager {
             atomic.failWrite(output)
             throw error
         }
+        // shortcut: Windows renameTo cannot overwrite an existing target, so AtomicFile's
+        // commit rename can fail silently and strand a ".new" temp with the old base.
+        // Compute checksums instead so we never leave a partial backup behind in prod.
+        val pendingNew = File(file.path + ".new")
+        if (pendingNew.exists()) {
+            val current = runCatching { AtomicFile(file).openRead().use { input ->
+                input.readBytes()
+            } }.getOrNull()
+            if (current == null || !current.contentEquals(payload)) {
+                file.writeBytes(payload)
+            }
+            pendingNew.delete()
+        }
     }
 
     private fun readBackup(context: Context, email: String): JSONObject? = synchronized(backupLock) {

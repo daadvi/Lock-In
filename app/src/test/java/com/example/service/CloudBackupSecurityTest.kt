@@ -36,6 +36,18 @@ class CloudBackupSecurityTest {
         }
     }
 
+    // AtomicFile leaves transient .new/.bak artifacts while straggler observer syncs finish;
+    // wait until exactly one settled .json remains before reading or corrupting it.
+    private suspend fun settledBackupFile(): File {
+        val dir = File(app.filesDir, "cloud_backups")
+        kotlinx.coroutines.withTimeout(5000) {
+            while (dir.listFiles().orEmpty().let { files ->
+                    files.count { it.extension == "json" } != 1 || files.any { it.extension != "json" }
+                }) kotlinx.coroutines.delay(50)
+        }
+        return dir.listFiles()!!.single { it.extension == "json" }
+    }
+
     private fun legacyFile(owner: String, external: Boolean = false): File {
         val directory = if (external) app.getExternalFilesDir(null)!! else app.filesDir
         return File(File(directory, "cloud_backups"), "backup_${owner.replace(Regex("[^a-zA-Z0-9_]"), "_")}.json")
@@ -139,7 +151,7 @@ class CloudBackupSecurityTest {
     @Test fun invalidLateRoutineDoesNotPartiallyRestoreSettings() = runBlocking {
         assertTrue(CloudSyncManager.registerAccount(app, email, password).isSuccess)
         mutateAndAwaitAutomaticBackup { ScreenTimeManager.setLimitMinutes(app, 45) }
-        val file = File(app.filesDir, "cloud_backups").listFiles()!!.single()
+        val file = settledBackupFile()
         val root = JSONObject(file.readText()).put("screenTimeLimitMinutes", 999)
             .put("focusRoutines", org.json.JSONArray().put(JSONObject().put("id", "bad").put("startHour", 99)))
         file.writeText(root.toString())
@@ -152,7 +164,7 @@ class CloudBackupSecurityTest {
             endHour = 11, endMinute = 0, targetPackage = "test.app", targetAppName = "Test app")
         mutateAndAwaitAutomaticBackup { FocusTimeManager.setAllRoutines(app, listOf(routine)) }
         assertTrue(CloudSyncManager.syncDataToCloud(app).success)
-        val file = File(app.filesDir, "cloud_backups").listFiles()!!.single()
+        val file = settledBackupFile()
         val snapshot = file.readText()
         mutateAndAwaitAutomaticBackup { FocusTimeManager.setAllRoutines(app, emptyList()) }
         file.writeText(snapshot)

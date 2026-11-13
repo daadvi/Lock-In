@@ -176,12 +176,12 @@ class UninstallProtectionActivity : ComponentActivity() {
                                 uninstallAfterChallenge()
                             }
                             HighFrictionChallengeType.UNBLOCK_INSTALLATION -> {
-                                if (!targetName.isNullOrBlank()) {
+                                val removed = !targetName.isNullOrBlank() &&
                                     com.example.service.PlayStoreBlacklistManager.removeApp(this, targetName)
-                                }
                                 Toast.makeText(
                                     this,
-                                    "Aplicativo liberado do bloqueio de instalação.",
+                                    if (removed) "Aplicativo liberado do bloqueio de instalação."
+                                    else "Bloqueio absoluto ativo: não é possível remover apps da lista.",
                                     Toast.LENGTH_LONG
                                 ).show()
                                 finish()

@@ -1,5 +1,7 @@
 package com.example.service
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -10,6 +12,7 @@ import android.provider.Settings
 import android.util.Log
 import com.example.FocusLockActivity
 import com.example.data.local.FocusRoutine
+import com.example.util.XiaomiCompatibilityHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +38,17 @@ object FocusTimeManager {
     private const val KEY_ALLOWED_PACKAGES_JSON = "focus_allowed_packages_json"
     private const val KEY_ROUTINES_JSON = "focus_routines_json"
     private const val KEY_CUSTOM_PRESETS_JSON = "focus_custom_presets_json"
+    private const val KEY_SESSION_DURATION_MS = "focus_duration_ms"
+    private const val KEY_SESSION_START_EPOCH = "focus_start_epoch"
+    private const val KEY_SESSION_LAST_TICK_EPOCH = "focus_last_tick_epoch"
+    private const val KEY_SESSION_ACCUMULATED_MS = "focus_accumulated_ms"
+
+    /**
+     * Wall-clock forward jumps above this bound are treated as clock tampering and
+     * buy zero time: moving the device clock past the session end never ends a
+     * session early. Real power-off gaps stay far below this bound and are counted.
+     */
+    private const val CLOCK_JUMP_TOLERANCE_MS = 30L * 60L * 1000L
 
     private val _isFocusActiveFlow = MutableStateFlow(false)
     val isFocusActiveFlow: StateFlow<Boolean> = _isFocusActiveFlow.asStateFlow()
@@ -55,13 +69,37 @@ object FocusTimeManager {
 
     // Wall time is used only for reboot/legacy recovery. During one boot, changing
     // the clock cannot shorten or prolong a direct duration-based focus session.
+    // Across reboots an accumulated-time ledger is used instead: real elapsed time
+    // (including power-off gaps) is counted, while clock rewinds add nothing and
+    // clock jumps forward beyond the tolerance buy nothing either.
     private fun directRemainingMillis(context: Context): Long {
         val prefs = getPrefs(context)
         val boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1)
         val elapsedEnd = prefs.getLong(KEY_END_ELAPSED, 0L)
-        return if (boot >= 0 && prefs.getInt(KEY_START_BOOT, -2) == boot && elapsedEnd > 0) {
-            (elapsedEnd - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
-        } else (prefs.getLong(KEY_END_EPOCH, 0L) - System.currentTimeMillis()).coerceAtLeast(0L)
+        if (boot >= 0 && prefs.getInt(KEY_START_BOOT, -2) == boot && elapsedEnd > 0) {
+            return (elapsedEnd - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        }
+        val now = System.currentTimeMillis()
+        val endEpoch = prefs.getLong(KEY_END_EPOCH, 0L)
+        if (endEpoch <= 0L) return 0L
+        val duration = prefs.getLong(KEY_SESSION_DURATION_MS, 0L)
+        if (duration <= 0L) return (endEpoch - now).coerceAtLeast(0L) // legacy sessions
+
+        val startEpoch = prefs.getLong(KEY_SESSION_START_EPOCH, endEpoch - duration)
+        var accumulated = prefs.getLong(KEY_SESSION_ACCUMULATED_MS, -1L)
+        if (accumulated < 0L) accumulated = (now - startEpoch).coerceAtLeast(0L)
+        val lastTick = prefs.getLong(KEY_SESSION_LAST_TICK_EPOCH, startEpoch)
+        val delta = now - lastTick
+        if (delta in 0..CLOCK_JUMP_TOLERANCE_MS) accumulated += delta
+        // delta < 0 (clock rewind) or > tolerance (clock jump/long outage): credit nothing.
+
+        if (delta >= 10_000L) {
+            prefs.edit()
+                .putLong(KEY_SESSION_ACCUMULATED_MS, accumulated)
+                .putLong(KEY_SESSION_LAST_TICK_EPOCH, now)
+                .apply()
+        }
+        return (duration - accumulated).coerceAtLeast(0L)
     }
 
     fun init(context: Context) {
@@ -85,7 +123,9 @@ object FocusTimeManager {
             prefs.edit()
                 .putBoolean(KEY_IS_ACTIVE, false)
                 .putLong(KEY_END_EPOCH, 0L)
-            .remove(KEY_END_ELAPSED).remove(KEY_START_BOOT)
+                .remove(KEY_END_ELAPSED).remove(KEY_START_BOOT)
+                .remove(KEY_SESSION_DURATION_MS).remove(KEY_SESSION_START_EPOCH)
+                .remove(KEY_SESSION_LAST_TICK_EPOCH).remove(KEY_SESSION_ACCUMULATED_MS)
                 .putString(KEY_ACTIVE_ROUTINE_NAME, "")
                 .apply()
         }
@@ -177,6 +217,10 @@ object FocusTimeManager {
             .putInt(KEY_TOTAL_MINUTES, safeDuration)
             .putString(KEY_ACTIVE_ROUTINE_NAME, routineName ?: "Focus Time")
             .putStringSet(KEY_ALLOWED_PACKAGES, safeAllowed.toSet())
+            .putLong(KEY_SESSION_DURATION_MS, safeDuration * 60_000L)
+            .putLong(KEY_SESSION_START_EPOCH, System.currentTimeMillis())
+            .putLong(KEY_SESSION_LAST_TICK_EPOCH, System.currentTimeMillis())
+            .putLong(KEY_SESSION_ACCUMULATED_MS, 0L)
             .apply()
 
         cachedAllowedList = safeAllowed
@@ -197,6 +241,8 @@ object FocusTimeManager {
             .putBoolean(KEY_IS_ACTIVE, false)
             .putLong(KEY_END_EPOCH, 0L)
             .remove(KEY_END_ELAPSED).remove(KEY_START_BOOT)
+            .remove(KEY_SESSION_DURATION_MS).remove(KEY_SESSION_START_EPOCH)
+            .remove(KEY_SESSION_LAST_TICK_EPOCH).remove(KEY_SESSION_ACCUMULATED_MS)
             .putString(KEY_ACTIVE_ROUTINE_NAME, "")
             .apply()
         _isFocusActiveFlow.value = false
@@ -283,7 +329,9 @@ object FocusTimeManager {
     }
 
     /**
-     * Brings FocusLockActivity to the front immediately.
+     * Brings FocusLockActivity to the front immediately. Uses the MIUI-safe launcher
+     * so that blocked background activity starts fall back to a full-screen-intent
+     * notification instead of silently doing nothing.
      */
     fun bringFocusLockToFront(context: Context) {
         try {
@@ -293,9 +341,80 @@ object FocusTimeManager {
                         Intent.FLAG_ACTIVITY_SINGLE_TOP or
                         Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
             }
-            context.startActivity(intent)
+            XiaomiCompatibilityHelper.safelyStartActivity(context, intent)
         } catch (_: Exception) {
         }
+    }
+
+    // --- Routine start alarms ---
+
+    /**
+     * Schedules one exact alarm per enabled device-wide routine at its next start time.
+     * Re-scheduled after each fire, on routine edits, on clock/timezone changes and on
+     * boot, so the lock screen appears exactly when the routine begins - even after a
+     * reboot while the phone sits idle and no accessibility event arrives.
+     */
+    fun scheduleRoutineAlarms(context: Context) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+            val now = System.currentTimeMillis()
+            val canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try { alarmManager.canScheduleExactAlarms() } catch (_: Exception) { false }
+            } else true
+            for (r in getRoutines(context)) {
+                val requestCode = r.id.hashCode()
+                if (!r.isEnabled || !r.targetPackage.isNullOrBlank()) {
+                    val existing = PendingIntent.getBroadcast(context, requestCode,
+                        Intent(context, FocusRoutineAlarmReceiver::class.java),
+                        PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
+                    if (existing != null) alarmManager.cancel(existing)
+                    continue
+                }
+                val triggerAt = nextRoutineStartMillis(now, r)
+                if (triggerAt <= 0L) continue
+                val pendingIntent = PendingIntent.getBroadcast(context, requestCode,
+                    Intent(context, FocusRoutineAlarmReceiver::class.java),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                if (canScheduleExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                    } catch (_: SecurityException) {
+                        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                    }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                } else {
+                    alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun nextRoutineStartMillis(nowMillis: Long, routine: FocusRoutine): Long {
+        val startMin = routine.startHour * 60 + routine.startMinute
+        for (dayOffset in 0..7) {
+            val candidate = Calendar.getInstance().apply {
+                timeInMillis = nowMillis + dayOffset * 86_400_000L
+                set(Calendar.HOUR_OF_DAY, startMin / 60)
+                set(Calendar.MINUTE, startMin % 60)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            if (candidate.timeInMillis <= nowMillis + 60_000L) continue
+            val dayOfWeek = when (candidate.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.MONDAY -> 1
+                Calendar.TUESDAY -> 2
+                Calendar.WEDNESDAY -> 3
+                Calendar.THURSDAY -> 4
+                Calendar.FRIDAY -> 5
+                Calendar.SATURDAY -> 6
+                Calendar.SUNDAY -> 7
+                else -> 1
+            }
+            if (routine.daysOfWeek.contains(dayOfWeek)) return candidate.timeInMillis
+        }
+        return 0L
     }
 
     // --- Routine Management ---
@@ -423,6 +542,7 @@ object FocusTimeManager {
         }
         cachedRoutinesList = routines
         getPrefs(context).edit().putString(KEY_ROUTINES_JSON, array.toString()).apply()
+        scheduleRoutineAlarms(context)
         try {
             com.example.LockInApplication.instance.applicationScope.launch {
                 CloudSyncManager.syncDataToCloud(context)

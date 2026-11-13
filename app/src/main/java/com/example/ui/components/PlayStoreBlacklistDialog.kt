@@ -58,6 +58,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.example.data.model.LockLevel
 import com.example.service.PlayStoreBlacklistManager
 import com.example.ui.theme.BlockyFontFamily
 import com.example.ui.theme.CmfBorder
@@ -79,6 +80,9 @@ fun PlayStoreBlacklistDialog(
 
     val userPrefs = remember { com.example.LockInApplication.instance.userPreferences }
     val isAbsoluteInstallBlock by userPrefs.isAbsoluteInstallBlock.collectAsState()
+    val currentLockLevel by userPrefs.lockLevel.collectAsState()
+    // No nível Sonho do Dev o bloqueio absoluto nunca pode ser desativado: a lista é permanente.
+    val isAbsoluteBlockPermanent = currentLockLevel == LockLevel.DEV_DREAM
     var showAbsoluteBlockAlert by remember { mutableStateOf(false) }
 
     var newAppNameInput by remember { mutableStateOf("") }
@@ -212,7 +216,10 @@ fun PlayStoreBlacklistDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "BLOQUEIO ABSOLUTO ATIVO: É proibido remover apps desta lista sem antes desativar o modo nas Configurações.",
+                            text = if (isAbsoluteBlockPermanent)
+                                "BLOQUEIO ABSOLUTO PERMANENTE (NÍVEL SONHO DO DEV): é proibido remover apps desta lista. Nenhum app que você adicionar pode ser retirado neste nível."
+                            else
+                                "BLOQUEIO ABSOLUTO ATIVO: É proibido remover apps desta lista sem antes desativar o modo nas Configurações.",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFC62828),
@@ -264,6 +271,16 @@ fun PlayStoreBlacklistDialog(
                         Icon(imageVector = Icons.Default.Add, contentDescription = "Adicionar", tint = Color.White)
                     }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "AO BLOQUEAR UM APP, O SITE OFICIAL DELE TAMBÉM FICA BLOQUEADO EM TODOS OS NAVEGADORES.",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = BlockyFontFamily,
+                    color = accentColor
+                )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -439,7 +456,10 @@ fun PlayStoreBlacklistDialog(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "A opção 'Bloqueio de instalação absoluta' está ativada nas Configurações.\n\nNão há forma de tirar nenhum app da lista de bloqueio de instalação enquanto este modo estiver ativo.\n\nPara desbloquear remoções, você deve desativar esse modo nas Configurações cumprindo o desafio de 3 etapas com o código enviado ao seu e-mail.",
+                        text = if (isAbsoluteBlockPermanent)
+                            "Você está no nível Sonho do Dev. O Bloqueio Absoluto não pode ser desativado neste nível e nenhum aplicativo pode ser removido da lista de bloqueio de instalação."
+                        else
+                            "A opção 'Bloqueio de instalação absoluta' está ativada nas Configurações.\n\nNão há forma de tirar nenhum app da lista de bloqueio de instalação enquanto este modo estiver ativo.\n\nPara desbloquear remoções, você deve desativar esse modo nas Configurações cumprindo o desafio de 3 etapas com o código enviado ao seu e-mail.",
                         fontSize = 11.sp,
                         color = CmfDark,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,

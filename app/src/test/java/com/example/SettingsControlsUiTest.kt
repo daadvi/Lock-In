@@ -28,11 +28,11 @@ class SettingsControlsUiTest {
             val haptic by prefs.hapticFeedback.collectAsState()
             val reminder by prefs.streakReminders.collectAsState()
             LockInTheme(themeMode = theme) {
-                SettingsScreen(theme, haptic, reminder, true, false, false,
+                SettingsScreen(theme, haptic, reminder, true, false,
                     currentPassword = { "" }, onSaveThemeMode = prefs::setThemeMode,
                     onSaveHapticFeedback = prefs::setHapticFeedback,
                     onSaveStreakReminders = prefs::setStreakReminders,
-                    onSavePreLimitAlerts = {}, onSaveMindfulDelay = {}, onSaveStrictMode = {},
+                    onSavePreLimitAlerts = {}, onSaveMindfulDelay = {},
                     onUpdatePassword = {}, onResetToDefaults = {}, onNavigateToStyling = {},
                     onNavigateToResetSettings = {}, onNavigateToPermissions = {}, onBack = {})
             }

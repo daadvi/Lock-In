@@ -89,10 +89,10 @@ class SpotlightTutorialTest {
             TutorialHost {
                 val current = LocalTutorialController.current
                 SideEffect { controller = current }
-                com.example.ui.screens.SettingsScreen("DARK",true,true,true,false,false,
+                com.example.ui.screens.SettingsScreen("DARK",true,true,true,false,
                     currentPassword={""},onSaveThemeMode={changes++},onSaveHapticFeedback={changes++},
                     onSaveStreakReminders={changes++},onSavePreLimitAlerts={changes++},onSaveMindfulDelay={changes++},
-                    onSaveStrictMode={changes++},onUpdatePassword={changes++},onResetToDefaults={changes++},
+                    onUpdatePassword={changes++},onResetToDefaults={changes++},
                     onNavigateToStyling={},onNavigateToResetSettings={},onNavigateToPermissions={},onBack={})
             }
         } }

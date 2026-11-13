@@ -10,6 +10,7 @@ import com.example.LockInApplication
 import com.example.MainActivity
 import com.example.util.AppHaptics
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -21,6 +22,11 @@ import java.util.Calendar
 @Config(sdk = [34])
 class FocusReminderTest {
     private val app get() = LockInApplication.instance
+    @Before fun resetSingletonState() {
+        // Kotlin object caches survive Robolectric's fresh-per-test prefs; a device-wide
+        // routine cached by an earlier class would falsely mark focus as active here.
+        FocusTimeManager.setAllRoutines(app, emptyList())
+    }
     private fun enable() {
         app.userPreferences.setRegistration("Teste", "Teste123!")
         app.userPreferences.setStreakReminders(true)

@@ -144,10 +144,18 @@ object PlayStoreBlacklistManager {
         } catch (_: Exception) {}
     }
 
+    // Com o Bloqueio Absoluto ativo, nenhum app pode sair da lista: restore de backup
+    // ou qualquer escrita em lata só pode UNIR entradas, nunca remover.
+    private fun isAbsoluteBlockActive(): Boolean =
+        com.example.LockInApplication.instance.userPreferences.isAbsoluteInstallBlockActive()
+
     fun setBlacklist(context: Context, apps: List<String>, enabled: Boolean) {
-        _blacklistedApps.value = apps.distinct()
+        val merged =
+            if (isAbsoluteBlockActive()) (_blacklistedApps.value + apps).distinct() else apps.distinct()
+        _blacklistedApps.value = merged
         _isBlacklistEnabled.value = enabled
         save(context)
+        syncBlockedAppWebsites(context)
     }
 
     fun setBlacklistEnabled(context: Context, enabled: Boolean) {
@@ -163,16 +171,70 @@ object PlayStoreBlacklistManager {
             current.add(clean)
             _blacklistedApps.value = current
             save(context)
+            syncBlockedAppWebsites(context)
             return true
         }
         return false
     }
 
-    fun removeApp(context: Context, appNameOrKeyword: String) {
+    /**
+     * Resolve os domínios oficiais de uma entrada da blacklist de instalação
+     * (ex.: "Reddit" -> reddit.com / redd.it, "Insta" -> instagram.com).
+     * Ordem: aliases/canonical -> pacotes conhecidos -> heurística "<nome>.com".
+     */
+    fun resolveWebsiteDomainsFor(appNameOrKeyword: String): List<String> {
+        val entry = appNameOrKeyword.trim()
+        if (entry.isBlank()) return emptyList()
+        val domains = LinkedHashSet<String>()
+        for (canonical in getCanonicalKeysFor(entry)) {
+            for (pkg in KNOWN_PACKAGES_MAP[canonical] ?: emptyList()) {
+                domains.addAll(com.example.util.AppWebsiteMapper.getWebsitesForApp(pkg, entry))
+            }
+        }
+        if (domains.isEmpty()) {
+            // Heurística local (sem pacote dummy): rótulo de domínio conhecido bate com o
+            // nome (ex.: "reddit" -> reddit.com/redd.it) e, em último caso, "<nome>.com".
+            val norm = normalize(entry)
+            if (norm.length >= 3) {
+                for ((_, mapDomains) in com.example.util.AppWebsiteMapper.domainMapSnapshot()) {
+                    if (mapDomains.any { norm == it.substringBefore(".") }) domains.addAll(mapDomains)
+                }
+            }
+            if (domains.isEmpty() && norm.length >= 3) domains.add("$norm.com")
+        }
+        return domains.filter { it.length >= 4 && it.contains(".") }
+    }
+
+    /**
+     * Espelha cada app da blacklist de instalação na blacklist de sites, para que
+     * o site oficial fique bloqueado em TODOS os navegadores (DNS sinkhole + URL).
+     * Idempotente: chamada em toda escrita da lista e no boot (catch-up).
+     */
+    fun syncBlockedAppWebsites(context: Context) {
+        if (!_isBlacklistEnabled.value) return
+        val appContext = context.applicationContext
+        var addedAny = false
+        for (entry in _blacklistedApps.value) {
+            if (entry.isBlank()) continue
+            for (domain in resolveWebsiteDomainsFor(entry)) {
+                if (WebsiteBlacklistManager.addWebsite(appContext, domain)) addedAny = true
+            }
+        }
+        if (addedAny) {
+            // O bloqueio de instalação é mais forte que a lista de sites: a sincronização
+            // não pode ser anulada por um toggle desligado.
+            WebsiteBlacklistManager.setBlacklistEnabled(appContext, true)
+        }
+    }
+
+    /** false = remoção bloqueada pelo Bloqueio Absoluto. */
+    fun removeApp(context: Context, appNameOrKeyword: String): Boolean {
+        if (isAbsoluteBlockActive()) return false
         val current = _blacklistedApps.value.toMutableList()
         current.removeAll { it.equals(appNameOrKeyword.trim(), ignoreCase = true) }
         _blacklistedApps.value = current
         save(context)
+        return true
     }
 
     private fun normalize(str: String): String {
@@ -470,29 +532,15 @@ object PlayStoreBlacklistManager {
         if (clean.length < 3) return null
 
         for (blocked in _blacklistedApps.value) {
-            val b = blocked.trim().lowercase()
-            if (b.isBlank()) continue
+            if (blocked.isBlank()) continue
 
-            // 1. Resolve canonical domains via AppWebsiteMapper
-            val canonicals = getCanonicalKeysFor(b)
-            for (c in canonicals) {
-                val knownPkgs = KNOWN_PACKAGES_MAP[c] ?: emptyList()
-                for (pkg in knownPkgs) {
-                    val domains = com.example.util.AppWebsiteMapper.getWebsitesForApp(pkg, blocked)
-                    if (domains.any { clean.contains(it) || it.contains(clean) }) {
-                        return blocked
-                    }
-                }
-            }
-
-            // 2. Direct domains from AppWebsiteMapper using dummy package
-            val directDomains = com.example.util.AppWebsiteMapper.getWebsitesForApp("com.$b", blocked)
-            if (directDomains.any { clean.contains(it) || it.contains(clean) }) {
+            // Dominios oficiais resolvidos do app (aliases, pacotes conhecidos, heuristica)
+            if (resolveWebsiteDomainsFor(blocked).any { clean.contains(it) || it.contains(clean) }) {
                 return blocked
             }
 
-            // 3. Normalized heuristic: e.g. "tiktok" in "tiktok.com", "instagram" in "instagram.com"
-            val normB = normalize(b)
+            // Fallback normalizado: ex. "reddit" casa com "reddit.com" sem mapeamento
+            val normB = normalize(blocked)
             if (normB.length >= 4 && clean.contains(normB)) {
                 return blocked
             }

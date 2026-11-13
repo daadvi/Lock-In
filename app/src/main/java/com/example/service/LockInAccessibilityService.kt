@@ -69,15 +69,21 @@ class LockInAccessibilityService : AccessibilityService() {
     private val browserPackages = listOf(
         "com.android.chrome",
         "com.google.android.apps.chrome",
+        "com.android.browser",
         "com.sec.android.app.sbrowser",
         "org.mozilla.firefox",
+        "org.mozilla.focus",
         "com.microsoft.emmx",
         "com.brave.browser",
         "com.opera.browser",
         "com.opera.mini.native",
+        "com.opera.gx.stable",
         "com.duckduckgo.mobile.android",
         "com.vivaldi.browser",
-        "com.kiwibrowser.browser"
+        "com.kiwibrowser.browser",
+        "com.yandex.browser",
+        "com.UCMobile.intl",
+        "com.quark.browser"
     )
 
     private val pendingVideoStateRunnable = Runnable {
@@ -165,7 +171,8 @@ class LockInAccessibilityService : AccessibilityService() {
         }
 
         // Debounce clicks slightly (200ms) to avoid double work, but NEVER debounce video platform clicks (Instagram, YouTube)
-        val isVideoPlatform = pkg.contains("instagram") || pkg.contains("youtube") || pkg.contains("tiktok")
+        val isVideoPlatform = pkg.contains("instagram") || pkg.contains("youtube") || pkg.contains("tiktok") ||
+                pkg.contains("kwai") || pkg.contains("kuaishou")
         if (isClick && !isVideoPlatform && (now - lastContentChangeProcessedEpoch < 200L)) {
             return
         }
@@ -230,6 +237,10 @@ class LockInAccessibilityService : AccessibilityService() {
         if (isLauncher) {
             LimitTimerManager.stopTimer(applicationContext)
             isUninstallingOtherApp = false
+            // A focus session outranks the home screen: sitting on the launcher is not an escape.
+            if (FocusTimeManager.isFocusTimeActive(applicationContext)) {
+                FocusTimeManager.bringFocusLockToFront(applicationContext)
+            }
             return
         }
 
@@ -913,7 +924,9 @@ class LockInAccessibilityService : AccessibilityService() {
 
             val viewId = node.viewIdResourceName?.lowercase() ?: ""
             if (viewId.contains("clips_viewer") || viewId.contains("reel_viewer") ||
-                viewId.contains("clips_video_container") || viewId.contains("clips_surface")) {
+                viewId.contains("clips_video_container") || viewId.contains("clips_surface") ||
+                viewId.contains("reels_container") || viewId.contains("reels_tab") ||
+                viewId.contains("clips_tab") || viewId.contains("reel_watch_feed")) {
                 isReels = true
                 return
             }
@@ -1287,7 +1300,7 @@ class LockInAccessibilityService : AccessibilityService() {
             // Check common external app names to prevent intercepting other apps
             val commonOtherApps = listOf(
                 "whatsapp", "instagram", "youtube", "chrome", "spotify",
-                "telegram", "facebook", "tiktok", "netflix", "duolingo",
+                "telegram", "facebook", "tiktok", "kwai", "kuaishou", "netflix", "duolingo",
                 "twitter", "uber", "gmail", "maps", "discord", "camera", "clock", "calculator"
             )
 

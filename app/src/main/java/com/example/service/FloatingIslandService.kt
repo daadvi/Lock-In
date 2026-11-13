@@ -704,14 +704,16 @@ class FloatingIslandService : Service() {
                                 continue
                             }
 
-                            val isTikTok = foregroundPackage.contains("tiktok") ||
+                            val isShortVideoPlatform = foregroundPackage.contains("tiktok") ||
                                     foregroundPackage.contains("zhiliaoapp") ||
-                                    foregroundPackage.contains("trill")
+                                    foregroundPackage.contains("trill") ||
+                                    foregroundPackage.contains("kwai") ||
+                                    foregroundPackage.contains("kuaishou")
 
                             LimitTimerManager.onAppForegroundChanged(
                                 context = applicationContext,
                                 packageName = foregroundPackage,
-                                isShortVideo = isTikTok
+                                isShortVideo = isShortVideoPlatform
                             )
                         }
                     }

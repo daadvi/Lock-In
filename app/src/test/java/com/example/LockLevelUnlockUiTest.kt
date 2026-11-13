@@ -150,10 +150,17 @@ class LockLevelUnlockUiTest(private val level: LockLevel, private val repetition
         compose.setContent {
             LockInTheme { AbsoluteInstallBlockDialog(false, {}, {}) }
         }
+        if (level == LockLevel.DEV_DREAM) {
+            // Nível máximo: a desativação não existe — nenhum campo, só o aviso permanente.
+            compose.onNode(hasSetTextAction()).assertDoesNotExist()
+            compose.onNodeWithText("NÍVEL SONHO DO DEV: BLOQUEIO PERMANENTE").assertExists()
+            return
+        }
         val field = compose.onNode(hasSetTextAction())
-        val nextStage = compose.onNodeWithText("ETAPA 2: DIGITE A FRASE MOTIVACIONAL COMPLETA")
+        val nextStage = compose.onNodeWithText("ETAPA 2: DIGITE A FRASE DO NÍVEL ${level.title.uppercase(java.util.Locale.ROOT)}")
         passwordSequence(field, assertIncomplete = { nextStage.assertDoesNotExist() })
         nextStage.assertExists()
+        compose.onNodeWithText("\"${level.requiredPhrase}\"").assertExists()
         compose.onNodeWithText("Digite a frase acima").assertExists()
     }
 

@@ -64,9 +64,6 @@ class UserPreferencesRepository(context: Context) {
     private val _mindfulDelay = MutableStateFlow(prefs.getBoolean(KEY_MINDFUL_DELAY, false))
     val mindfulDelay: StateFlow<Boolean> = _mindfulDelay.asStateFlow()
 
-    private val _strictMode = MutableStateFlow(prefs.getBoolean(KEY_STRICT_MODE, false))
-    val strictMode: StateFlow<Boolean> = _strictMode.asStateFlow()
-
     private val _lockLevel = MutableStateFlow(
         LockLevel.fromId(prefs.getString(KEY_LOCK_LEVEL, LockLevel.BASIC.id))
     )
@@ -77,15 +74,12 @@ class UserPreferencesRepository(context: Context) {
     )
     val hasSelectedInitialLockLevel: StateFlow<Boolean> = _hasSelectedInitialLockLevel.asStateFlow()
 
+    // Bloqueio absoluto: sempre ativo por padrão. Só pode ser desativado pelo desafio
+    // do nível de lock (senha Nx + frase), e jamais no nível Sonho do Dev.
     private val _isAbsoluteInstallBlock = MutableStateFlow(
-        prefs.getBoolean(KEY_IS_ABSOLUTE_INSTALL_BLOCK, false)
+        prefs.getBoolean(KEY_IS_ABSOLUTE_INSTALL_BLOCK, true)
     )
     val isAbsoluteInstallBlock: StateFlow<Boolean> = _isAbsoluteInstallBlock.asStateFlow()
-
-    private val _absoluteBlockQuickBypassesRemaining = MutableStateFlow(
-        prefs.getInt(KEY_ABSOLUTE_BLOCK_QUICK_BYPASSES_REMAINING, 2)
-    )
-    val absoluteBlockQuickBypassesRemaining: StateFlow<Int> = _absoluteBlockQuickBypassesRemaining.asStateFlow()
 
     fun setRegistration(name: String, password: String) {
         val securePassword = com.example.util.CryptoPasswordHelper.hashPassword(password)
@@ -209,11 +203,6 @@ class UserPreferencesRepository(context: Context) {
         _mindfulDelay.value = enabled
     }
 
-    fun setStrictMode(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_STRICT_MODE, enabled).apply()
-        _strictMode.value = enabled
-    }
-
     fun updatePassword(newPass: String) {
         val secureHash = com.example.util.CryptoPasswordHelper.hashPassword(newPass)
         prefs.edit().putString(KEY_PASSWORD, secureHash).apply()
@@ -233,7 +222,6 @@ class UserPreferencesRepository(context: Context) {
             .putBoolean(KEY_STREAK_REMINDERS, true)
             .putBoolean(KEY_PRE_LIMIT_ALERTS, true)
             .putBoolean(KEY_MINDFUL_DELAY, false)
-            .putBoolean(KEY_STRICT_MODE, false)
             .putString(KEY_ISLAND_SIZE, "MEDIUM")
             .putFloat(KEY_ISLAND_OPACITY, 0.95f)
             .apply()
@@ -243,7 +231,6 @@ class UserPreferencesRepository(context: Context) {
         _streakReminders.value = true
         _preLimitAlerts.value = true
         _mindfulDelay.value = false
-        _strictMode.value = false
         _floatingIslandSize.value = "MEDIUM"
         _floatingIslandOpacity.value = 0.95f
     }
@@ -257,6 +244,9 @@ class UserPreferencesRepository(context: Context) {
             .apply()
         _lockLevel.value = level
         _hasSelectedInitialLockLevel.value = true
+        // No nível máximo (Sonho do Dev) nada pode sair da lista de bloqueio:
+        // o bloqueio absoluto é reativado e nunca mais poderá ser desativado.
+        if (level == LockLevel.DEV_DREAM) setAbsoluteInstallBlock(true)
     }
 
     fun setAbsoluteInstallBlock(enabled: Boolean) {
@@ -266,22 +256,8 @@ class UserPreferencesRepository(context: Context) {
 
     fun isAbsoluteInstallBlockActive(): Boolean = _isAbsoluteInstallBlock.value
 
-    fun useQuickAbsoluteBlockBypass(): Boolean {
-        val remaining = _absoluteBlockQuickBypassesRemaining.value
-        if (remaining > 0) {
-            val newRemaining = remaining - 1
-            prefs.edit()
-                .putInt(KEY_ABSOLUTE_BLOCK_QUICK_BYPASSES_REMAINING, newRemaining)
-                .putBoolean(KEY_IS_ABSOLUTE_INSTALL_BLOCK, false)
-                .apply()
-            _absoluteBlockQuickBypassesRemaining.value = newRemaining
-            _isAbsoluteInstallBlock.value = false
-            return true
-        }
-        return false
-    }
-
     fun deactivateAbsoluteInstallBlockWithChallenge() {
+        if (_lockLevel.value == LockLevel.DEV_DREAM) return // Nível máximo: permanente
         prefs.edit().putBoolean(KEY_IS_ABSOLUTE_INSTALL_BLOCK, false).apply()
         _isAbsoluteInstallBlock.value = false
     }
@@ -308,10 +284,8 @@ class UserPreferencesRepository(context: Context) {
         private const val KEY_STREAK_REMINDERS = "key_streak_reminders"
         private const val KEY_PRE_LIMIT_ALERTS = "key_pre_limit_alerts"
         private const val KEY_MINDFUL_DELAY = "key_mindful_delay"
-        private const val KEY_STRICT_MODE = "key_strict_mode"
         private const val KEY_LOCK_LEVEL = "key_lock_level"
         private const val KEY_HAS_SELECTED_INITIAL_LOCK_LEVEL = "key_has_selected_initial_lock_level"
         private const val KEY_IS_ABSOLUTE_INSTALL_BLOCK = "key_is_absolute_install_block"
-        private const val KEY_ABSOLUTE_BLOCK_QUICK_BYPASSES_REMAINING = "key_absolute_block_quick_bypasses_remaining"
     }
 }

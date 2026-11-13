@@ -62,6 +62,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Language
+import com.example.data.model.LockLevel
 import com.example.service.DeviceAdminManager
 import com.example.service.CloudSyncManager
 import com.example.UninstallProtectionActivity
@@ -131,7 +132,6 @@ fun SettingsScreen(
     streakRemindersEnabled: Boolean,
     preLimitAlertsEnabled: Boolean,
     mindfulDelayEnabled: Boolean,
-    strictModeEnabled: Boolean,
     userName: String = "Focado",
     currentPassword: () -> String,
     onSaveThemeMode: (String) -> Unit,
@@ -139,7 +139,6 @@ fun SettingsScreen(
     onSaveStreakReminders: (Boolean) -> Unit,
     onSavePreLimitAlerts: (Boolean) -> Unit,
     onSaveMindfulDelay: (Boolean) -> Unit,
-    onSaveStrictMode: (Boolean) -> Unit,
     onUpdateUserName: (String) -> Unit = {},
     onUpdatePassword: (String) -> Unit,
     onResetToDefaults: () -> Unit,
@@ -218,9 +217,7 @@ fun SettingsScreen(
             SettingsTile("pre_limit", "Alerta pré-limite", "Avisos quando faltarem 5 e 2 minutos.", Icons.Default.Timer,
                 checked = preLimitAlertsEnabled, onClick = { triggerHaptic(); onSavePreLimitAlerts(!preLimitAlertsEnabled) }),
             SettingsTile("mindful", "Pausa consciente", "Respire por 30 segundos antes de desbloquear.", Icons.Default.SelfImprovement,
-                checked = mindfulDelayEnabled, onClick = { triggerHaptic(); onSaveMindfulDelay(!mindfulDelayEnabled) }),
-            SettingsTile("strict", "Modo estrito", "Protege os limites enquanto estiverem em andamento.", Icons.Default.Lock,
-                checked = strictModeEnabled, onClick = { triggerHaptic(); onSaveStrictMode(!strictModeEnabled) })
+                checked = mindfulDelayEnabled, onClick = { triggerHaptic(); onSaveMindfulDelay(!mindfulDelayEnabled) })
         ),
         "SUA CONTA E APARÊNCIA" to listOf(
             SettingsTile("name", "Seu nome", userName.ifBlank { "Defina seu nome de foco" }, Icons.Default.Person,
@@ -235,7 +232,12 @@ fun SettingsScreen(
         "BLOQUEIOS E PROTEÇÕES" to listOf(
             SettingsTile("levels", "Nível de Lock", currentLockLevel.title + " • Regras de desbloqueio.", Icons.Default.Layers,
                 target = "levels", onClick = { showChangeLockLevelDialog = true }),
-            SettingsTile("absolute", "Bloqueio absoluto", if (isAbsoluteInstallBlock) "Ativo • Protege a lista de instalação." else "Reforce o bloqueio da instalação de apps.", Icons.Default.AppBlocking,
+            SettingsTile("absolute", "Bloqueio absoluto",
+                when {
+                    currentLockLevel == LockLevel.DEV_DREAM -> "Permanente • Nível Sonho do Dev: nada sai da lista."
+                    isAbsoluteInstallBlock -> "Ativo • Protege a lista de instalação."
+                    else -> "Reforce o bloqueio da instalação de apps."
+                }, Icons.Default.Lock,
                 onClick = { pendingAbsoluteBlockEnable = !isAbsoluteInstallBlock; showAbsoluteBlockDialog = true }),
             SettingsTile("play_store", "Apps da Play Store", "Escolha os apps cuja instalação será bloqueada.", Icons.Default.Shop,
                 target = "play_store", onClick = { showPlayStoreBlacklistDialog = true }),
@@ -259,7 +261,7 @@ fun SettingsScreen(
         "SOBRE E PREFERÊNCIAS" to listOf(
             SettingsTile("info_card", "Informações e créditos", "Conheça o Lock In e quem ajudou a criá-lo.", Icons.Default.Info,
                 onClick = { showInfoDialog = true }),
-            SettingsTile("defaults", "Restaurar preferências", "Redefina tema, alertas, pausa e modo estrito.", Icons.Default.RestartAlt,
+            SettingsTile("defaults", "Restaurar preferências", "Redefina tema, alertas e pausa consciente.", Icons.Default.RestartAlt,
                 onClick = { showResetDefaultsDialog = true })
         )
     )

@@ -19,7 +19,7 @@ object AppWebsiteMapper {
         "com.facebook.katana" to listOf("facebook.com", "m.facebook.com", "fb.com"),
         "com.facebook.lite" to listOf("facebook.com", "m.facebook.com"),
         "com.twitter.android" to listOf("x.com", "twitter.com"),
-        "com.reddit.frontpage" to listOf("reddit.com"),
+        "com.reddit.frontpage" to listOf("reddit.com", "redd.it", "redditmedia.com"),
         "tv.twitch.android.app" to listOf("twitch.tv"),
         "com.netflix.mediaclient" to listOf("netflix.com"),
         "com.pinterest" to listOf("pinterest.com"),
@@ -31,6 +31,7 @@ object AppWebsiteMapper {
         "com.instagram.barcelona" to listOf("threads.net"),
         "com.roblox.client" to listOf("roblox.com"),
         "com.kwai.video" to listOf("kwai.com"),
+        "com.kuaishou.nebula" to listOf("kwai.com"),
         "com.snapchat.android" to listOf("snapchat.com"),
         "com.amazon.mShop.android.shopping" to listOf("amazon.com", "amazon.com.br"),
         "com.shopee.br" to listOf("shopee.com.br", "shopee.com"),
@@ -42,6 +43,9 @@ object AppWebsiteMapper {
         "com.chess" to listOf("chess.com"),
         "com.duolingo" to listOf("duolingo.com")
     )
+
+    /** Snapshot do mapa pacote->domínios para heurísticas externas (ex.: blacklist de instalação). */
+    fun domainMapSnapshot(): Map<String, List<String>> = packageToDomainsMap
 
     /**
      * Resolves all known domains for a given package and app name.
@@ -57,7 +61,9 @@ object AppWebsiteMapper {
         val lowerName = appName.lowercase().replace(" ", "").replace("-", "")
 
         for ((pkg, domains) in packageToDomainsMap) {
-            if (lowerPkg.contains(pkg) || domains.any { lowerPkg.contains(it.substringBefore(".")) }) {
+            // Rótulo do domínio precisa ter >= 4 chars: senão "m." de "m.youtube.com"
+            // casa com qualquer pacote contendo a letra "m" (ex.: "com.zapzap").
+            if (lowerPkg.contains(pkg) || domains.any { it.substringBefore(".").length >= 4 && lowerPkg.contains(it.substringBefore(".")) }) {
                 results.addAll(domains)
             }
         }

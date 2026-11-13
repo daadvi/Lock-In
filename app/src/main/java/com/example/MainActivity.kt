@@ -119,7 +119,6 @@ class MainActivity : ComponentActivity() {
             val streakReminders by userPrefs.streakReminders.collectAsStateWithLifecycle()
             val preLimitAlerts by userPrefs.preLimitAlerts.collectAsStateWithLifecycle()
             val mindfulDelay by userPrefs.mindfulDelay.collectAsStateWithLifecycle()
-            val strictMode by userPrefs.strictMode.collectAsStateWithLifecycle()
 
             val restrictedApps by remember(repository) { repository.getAllAppsFlow() }.collectAsStateWithLifecycle(initialValue = emptyList())
             val appGroups by remember(repository) { repository.getAllAppGroupsFlow() }.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -458,7 +457,6 @@ class MainActivity : ComponentActivity() {
                                     streakRemindersEnabled = streakReminders,
                                     preLimitAlertsEnabled = preLimitAlerts,
                                     mindfulDelayEnabled = mindfulDelay,
-                                    strictModeEnabled = strictMode,
                                     userName = userName,
                                     currentPassword = { userPrefs.getTrustPassword() },
                                     onSaveThemeMode = { mode -> userPrefs.setThemeMode(mode) },
@@ -466,7 +464,6 @@ class MainActivity : ComponentActivity() {
                                     onSaveStreakReminders = { enabled -> userPrefs.setStreakReminders(enabled) },
                                     onSavePreLimitAlerts = { enabled -> userPrefs.setPreLimitAlerts(enabled) },
                                     onSaveMindfulDelay = { enabled -> userPrefs.setMindfulDelay(enabled) },
-                                    onSaveStrictMode = { enabled -> userPrefs.setStrictMode(enabled) },
                                     onUpdateUserName = { newName -> userPrefs.updateUserName(newName) },
                                     onUpdatePassword = { newPass -> userPrefs.updatePassword(newPass) },
                                     onResetToDefaults = { userPrefs.resetAllSettingsToDefault() },

@@ -61,6 +61,7 @@
             android:name=".FocusLockActivity"
             android:exported="false"
             android:launchMode="singleTask"
+            android:taskAffinity="com.example.focus_lock_task"
             android:excludeFromRecents="true"
             android:showWhenLocked="true"
             android:showOnLockScreen="true"
@@ -117,6 +118,14 @@
 
         <receiver
             android:name=".service.DailyResetAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".service.FocusRoutineAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".service.FocusLockRetryReceiver"
             android:exported="false" />
 
         <receiver android:name=".service.FocusReminderReceiver" android:exported="false">
