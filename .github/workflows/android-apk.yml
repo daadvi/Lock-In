@@ -30,13 +30,14 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Preparar Android SDK
-        uses: android-actions/setup-android@v3
-
+      # A imagem ubuntu-latest já traz o Android SDK em /usr/local/lib/android/sdk
+      # (cmdline-tools "latest"). A ação android-actions/setup-android@v3 está
+      # deprecada e falha no runner atual, então instalamos direto via sdkmanager.
       - name: Instalar SDK exigido pelo projeto
         run: |
           yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --install "platforms;android-36.1" "build-tools;36.0.0"
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       # O repositório não armazena uma chave privada. Esta chave de desenvolvimento
       # torna o APK instalável para testes, mas é recriada em cada execução.
