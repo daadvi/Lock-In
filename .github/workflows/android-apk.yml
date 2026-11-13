@@ -39,9 +39,13 @@ jobs:
           mkdir -p "$ANDROID_HOME/cmdline-tools"
           unzip -q /tmp/cmdline-tools.zip -d "$ANDROID_HOME/cmdline-tools"
           mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          # GITHUB_PATH só vale nos passos seguintes: neste passo o sdkmanager
+          # ainda não está no PATH, então chamamos pelo caminho completo.
+          SDKMAN="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMAN" --licenses > /dev/null || true
+          "$SDKMAN" --install "platforms;android-36" "build-tools;36.0.0"
+          # Deixa o sdkmanager no PATH para os passos seguintes.
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
           # Segurança extra para o Gradle achar o SDK.
           echo "sdk.dir=$ANDROID_HOME" > local.properties
 
