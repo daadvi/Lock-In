@@ -153,7 +153,7 @@ class LockLevelUnlockUiTest(private val level: LockLevel, private val repetition
         if (level == LockLevel.DEV_DREAM) {
             // Nível máximo: a desativação não existe — nenhum campo, só o aviso permanente.
             compose.onNode(hasSetTextAction()).assertDoesNotExist()
-            compose.onNodeWithText("NÍVEL SONHO DO DEV: BLOQUEIO PERMANENTE").assertExists()
+            compose.onNodeWithText("NÍVEL ${LockLevel.DEV_DREAM.title.uppercase()}: BLOQUEIO PERMANENTE").assertExists()
             return
         }
         val field = compose.onNode(hasSetTextAction())

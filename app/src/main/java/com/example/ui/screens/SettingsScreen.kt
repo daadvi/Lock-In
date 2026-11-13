@@ -234,7 +234,7 @@ fun SettingsScreen(
                 target = "levels", onClick = { showChangeLockLevelDialog = true }),
             SettingsTile("absolute", "Bloqueio absoluto",
                 when {
-                    currentLockLevel == LockLevel.DEV_DREAM -> "Permanente • Nível Sonho do Dev: nada sai da lista."
+                    currentLockLevel == LockLevel.DEV_DREAM -> "Permanente • Nível ${LockLevel.DEV_DREAM.title}: nada sai da lista."
                     isAbsoluteInstallBlock -> "Ativo • Protege a lista de instalação."
                     else -> "Reforce o bloqueio da instalação de apps."
                 }, Icons.Default.Lock,

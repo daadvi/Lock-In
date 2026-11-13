@@ -75,7 +75,7 @@ class UserPreferencesRepository(context: Context) {
     val hasSelectedInitialLockLevel: StateFlow<Boolean> = _hasSelectedInitialLockLevel.asStateFlow()
 
     // Bloqueio absoluto: sempre ativo por padrão. Só pode ser desativado pelo desafio
-    // do nível de lock (senha Nx + frase), e jamais no nível Sonho do Dev.
+    // do nível de lock (senha Nx + frase), e jamais no nível Obcecado.
     private val _isAbsoluteInstallBlock = MutableStateFlow(
         prefs.getBoolean(KEY_IS_ABSOLUTE_INSTALL_BLOCK, true)
     )
@@ -244,7 +244,7 @@ class UserPreferencesRepository(context: Context) {
             .apply()
         _lockLevel.value = level
         _hasSelectedInitialLockLevel.value = true
-        // No nível máximo (Sonho do Dev) nada pode sair da lista de bloqueio:
+        // No nível máximo (Obcecado) nada pode sair da lista de bloqueio:
         // o bloqueio absoluto é reativado e nunca mais poderá ser desativado.
         if (level == LockLevel.DEV_DREAM) setAbsoluteInstallBlock(true)
     }
@@ -257,7 +257,7 @@ class UserPreferencesRepository(context: Context) {
     fun isAbsoluteInstallBlockActive(): Boolean = _isAbsoluteInstallBlock.value
 
     fun deactivateAbsoluteInstallBlockWithChallenge() {
-        if (_lockLevel.value == LockLevel.DEV_DREAM) return // Nível máximo: permanente
+        if (_lockLevel.value == LockLevel.DEV_DREAM) return // Nível máximo (Obcecado): permanente
         prefs.edit().putBoolean(KEY_IS_ABSOLUTE_INSTALL_BLOCK, false).apply()
         _isAbsoluteInstallBlock.value = false
     }

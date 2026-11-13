@@ -297,7 +297,7 @@ fun AbsoluteInstallBlockDialog(
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
                                 if (isDevDream) {
-                                    // Nível Sonho do Dev: não existe forma de desativar
+                                    // Nível Obcecado: não existe forma de desativar
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -308,7 +308,7 @@ fun AbsoluteInstallBlockDialog(
                                     ) {
                                         Column {
                                             Text(
-                                                text = "NÍVEL SONHO DO DEV: BLOQUEIO PERMANENTE",
+                                                text = "NÍVEL ${LockLevel.DEV_DREAM.title.uppercase()}: BLOQUEIO PERMANENTE",
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Black,
                                                 fontFamily = FontFamily.Monospace,

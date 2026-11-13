@@ -33,7 +33,7 @@ enum class LockLevel(
     DEV_DREAM(
         id = "DEV_DREAM",
         levelNumber = 3,
-        title = "Sonho do Dev",
+        title = "Obcecado",
         description = "O Criador deste app só criou o Lock In por causa desse modo de bloqueio. Este é para aqueles que não estão só determinado pela mudança, mas sim obcecados por ela. É para aquele que tem força de vontade inesgotável. Para desbloquear os apps você deve digitar a senha 5 vezes (sem errar) e digitar uma frase (sem errar). Para tirar um app da lista de bloqueio de instalação, você precisa digitar a senha 5 vezes e digitar uma frase (não pode errar em ambos).",
         passwordRepeatCount = 5,
         requiredPhrase = "Eu sou o único responsável pelos meus resultados e tenho força de vontade inesgotável para superar distrações",

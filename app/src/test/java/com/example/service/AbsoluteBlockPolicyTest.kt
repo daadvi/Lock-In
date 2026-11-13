@@ -12,7 +12,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** Bloqueio absoluto: sempre ativo por padrão, desafio por nível, impossível no Sonho do Dev. */
+/** Bloqueio absoluto: sempre ativo por padrão, desafio por nível, impossível no Obcecado. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class AbsoluteBlockPolicyTest {

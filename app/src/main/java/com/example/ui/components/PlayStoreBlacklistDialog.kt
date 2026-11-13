@@ -81,7 +81,7 @@ fun PlayStoreBlacklistDialog(
     val userPrefs = remember { com.example.LockInApplication.instance.userPreferences }
     val isAbsoluteInstallBlock by userPrefs.isAbsoluteInstallBlock.collectAsState()
     val currentLockLevel by userPrefs.lockLevel.collectAsState()
-    // No nível Sonho do Dev o bloqueio absoluto nunca pode ser desativado: a lista é permanente.
+    // No nível Obcecado o bloqueio absoluto nunca pode ser desativado: a lista é permanente.
     val isAbsoluteBlockPermanent = currentLockLevel == LockLevel.DEV_DREAM
     var showAbsoluteBlockAlert by remember { mutableStateOf(false) }
 
@@ -217,7 +217,7 @@ fun PlayStoreBlacklistDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = if (isAbsoluteBlockPermanent)
-                                "BLOQUEIO ABSOLUTO PERMANENTE (NÍVEL SONHO DO DEV): é proibido remover apps desta lista. Nenhum app que você adicionar pode ser retirado neste nível."
+                                "BLOQUEIO ABSOLUTO PERMANENTE (NÍVEL ${LockLevel.DEV_DREAM.title.uppercase()}): é proibido remover apps desta lista. Nenhum app que você adicionar pode ser retirado neste nível."
                             else
                                 "BLOQUEIO ABSOLUTO ATIVO: É proibido remover apps desta lista sem antes desativar o modo nas Configurações.",
                             fontSize = 10.sp,
@@ -457,7 +457,7 @@ fun PlayStoreBlacklistDialog(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = if (isAbsoluteBlockPermanent)
-                            "Você está no nível Sonho do Dev. O Bloqueio Absoluto não pode ser desativado neste nível e nenhum aplicativo pode ser removido da lista de bloqueio de instalação."
+                            "Você está no nível ${LockLevel.DEV_DREAM.title}. O Bloqueio Absoluto não pode ser desativado neste nível e nenhum aplicativo pode ser removido da lista de bloqueio de instalação."
                         else
                             "A opção 'Bloqueio de instalação absoluta' está ativada nas Configurações.\n\nNão há forma de tirar nenhum app da lista de bloqueio de instalação enquanto este modo estiver ativo.\n\nPara desbloquear remoções, você deve desativar esse modo nas Configurações cumprindo o desafio de 3 etapas com o código enviado ao seu e-mail.",
                         fontSize = 11.sp,
