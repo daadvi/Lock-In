@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import com.example.util.EmptyTextToolbar
 import com.example.util.isManualTyping
+import com.example.util.PhraseEntryCheck
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -98,6 +99,11 @@ fun HighFrictionSecurityChallengeFlow(
 
     var stage2Input by remember { mutableStateOf("") }
     var stage4Input by remember { mutableStateOf("") }
+
+    // 3 chances por frase; errar as 3 reinicia tudo desde a senha.
+    // O vermelho na frase aparece só na 1ª falha (ver PhraseAttemptTracker).
+    val stage2Attempts = rememberPhraseAttemptTracker()
+    val stage4Attempts = rememberPhraseAttemptTracker()
 
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var pasteWarning by remember { mutableStateOf<String?>(null) }
@@ -174,6 +180,8 @@ fun HighFrictionSecurityChallengeFlow(
         stage4Input = ""
         currentStage = 1
         errorMessage = reason
+        stage2Attempts.reset()
+        stage4Attempts.reset()
         // Alternate to another phrase for the next cycle
         finalPhraseIndex = (finalPhraseIndex + 1) % finalPhrases.size
     }
@@ -205,7 +213,7 @@ fun HighFrictionSecurityChallengeFlow(
     }
 
     fun verifyStage2Phrase() {
-        if (com.example.util.KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(stage2Input, requiredStage2Phrase)) {
+        if (PhraseEntryCheck.isExactMatch(stage2Input, requiredStage2Phrase)) {
             if (challengeType == HighFrictionChallengeType.UNBLOCK_INSTALLATION) {
                 // Completed password (1/3/5x) + phrase: unblock blacklist item immediately
                 onSuccess()
@@ -213,16 +221,24 @@ fun HighFrictionSecurityChallengeFlow(
                 currentStage = 3
                 errorMessage = null
             }
+        } else if (stage2Attempts.registerFailure(stage2Input)) {
+            resetAllBackToStart("Você errou a frase 3 vezes! Por segurança, todo o protocolo foi reiniciado desde a senha.")
         } else {
-            resetAllBackToStart("Você errou a frase! Por segurança, todo o protocolo foi reiniciado desde a senha.")
+            stage2Attempts.attemptsLeft.let { left ->
+                errorMessage = "Frase incorreta! Resta${if (left > 1) "m" else ""} $left chance${if (left > 1) "s" else ""}. Digite exatamente como pedido."
+            }
         }
     }
 
     fun verifyStage4Phrase() {
-        if (com.example.util.KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(stage4Input, requiredStage4Phrase)) {
+        if (PhraseEntryCheck.isExactMatch(stage4Input, requiredStage4Phrase)) {
             onSuccess()
+        } else if (stage4Attempts.registerFailure(stage4Input)) {
+            resetAllBackToStart("Você errou a frase final 3 vezes! Por segurança, todo o protocolo foi reiniciado desde a senha.")
         } else {
-            resetAllBackToStart("Você errou a frase final! Por segurança, todo o protocolo foi reiniciado desde a senha.")
+            stage4Attempts.attemptsLeft.let { left ->
+                errorMessage = "Frase incorreta! Resta${if (left > 1) "m" else ""} $left chance${if (left > 1) "s" else ""}. Digite exatamente como pedido."
+            }
         }
     }
 
@@ -559,7 +575,7 @@ fun HighFrictionSecurityChallengeFlow(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Se errar qualquer letra, todo o processo reiniciará desde a etapa da senha:",
+                        text = "Você tem 3 chances. Se errar as 3, o protocolo reinicia desde a senha. Na 1ª falha, as palavras erradas ficam vermelhas acima.",
                         fontSize = 10.sp,
                         color = subtextColor
                     )
@@ -573,12 +589,12 @@ fun HighFrictionSecurityChallengeFlow(
                             .border(1.dp, phraseBoxBorder, RoundedCornerShape(8.dp))
                             .padding(10.dp)
                     ) {
-                        Text(
-                            text = "'$requiredStage2Phrase'",
+                        PhraseTargetDisplay(
+                            phrase = requiredStage2Phrase,
+                            failedInput = if (stage2Attempts.showErrorHighlight) stage2Attempts.firstFailedInput else null,
                             modifier = Modifier.testTag("stage2_phrase_target"),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.Monospace,
                             color = textColor
                         )
                     }
@@ -719,15 +735,14 @@ fun HighFrictionSecurityChallengeFlow(
                                 .border(1.5.dp, Color(0xFFFF9800), RoundedCornerShape(8.dp))
                                 .padding(12.dp)
                         ) {
-                            Text(
-                                text = "\"$requiredStage4Phrase\"",
+                            PhraseTargetDisplay(
+                                phrase = requiredStage4Phrase,
+                                failedInput = if (stage4Attempts.showErrorHighlight) stage4Attempts.firstFailedInput else null,
+                                modifier = Modifier.fillMaxWidth().testTag("stage4_phrase_target"),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.Monospace,
                                 color = Color(0xFFE65100),
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().testTag("stage4_phrase_target"),
-                                lineHeight = 16.sp
+                                textAlign = TextAlign.Center
                             )
                         }
 

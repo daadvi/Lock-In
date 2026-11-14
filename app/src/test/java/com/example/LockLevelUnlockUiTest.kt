@@ -122,10 +122,14 @@ class LockLevelUnlockUiTest(private val level: LockLevel, private val repetition
         field.assertDoesNotExist()
         phrase.assertIsEnabled()
         compose.runOnIdle { assertFalse(completed) } // The required phrases must still be completed.
-        // A wrong confirmation phrase must also reset the password stage.
-        typeManually(phrase, "Esta frase está totalmente errada")
-        compose.onNodeWithTag("verify_stage2_button").performScrollTo().performClick()
-        phrase.assertIsNotEnabled()
+        // Nova regra: 3 chances por frase. As 2 primeiras falhas mantêm a frase habilitada
+        // (com aviso de chances restantes); a 3ª reinicia desde a senha.
+        repeat(3) {
+            typeManually(phrase, "Esta frase está totalmente errada")
+            compose.onNodeWithTag("verify_stage2_button").performScrollTo().performClick()
+            compose.runOnIdle { assertFalse(completed) }
+        }
+        phrase.assertIsNotEnabled() // 3ª falha: voltou para a senha
         repeat(repetitions) { index ->
             typeManually(field, password)
             field.performImeAction()
@@ -160,11 +164,11 @@ class LockLevelUnlockUiTest(private val level: LockLevel, private val repetition
         val nextStage = compose.onNodeWithText("ETAPA 2: DIGITE A FRASE DO NÍVEL ${level.title.uppercase(java.util.Locale.ROOT)}")
         passwordSequence(field, assertIncomplete = { nextStage.assertDoesNotExist() })
         nextStage.assertExists()
-        compose.onNodeWithText("\"${level.requiredPhrase}\"").assertExists()
+        compose.onNodeWithText(level.requiredPhrase).assertExists()
         compose.onNodeWithText("Digite a frase acima").assertExists()
     }
 
-    @Test fun appUnlockUsesSavedLevelAndPreservesMinorPhraseTypoTolerance() {
+    @Test fun appUnlockRejectsTyposAndGivesThreePhraseChances() {
         var unlocked = false
         compose.setContent {
             LockInTheme {
@@ -180,7 +184,18 @@ class LockLevelUnlockUiTest(private val level: LockLevel, private val repetition
         compose.runOnIdle { assertFalse(unlocked) }
         val phraseWithMinorTypo = level.requiredPhrase.replaceFirst("desbloquear", "desbloqiear")
             .replaceFirst("responsável", "responsavel")
-        typeManually(compose.onNodeWithTag("trust_unlock_phrase_input"), phraseWithMinorTypo.uppercase(java.util.Locale.ROOT))
+        val phraseField = compose.onNodeWithTag("trust_unlock_phrase_input")
+        // Nova regra: typo NÃO é aceito. 3 chances; a 3ª volta para a senha.
+        repeat(3) {
+            typeManually(phraseField, phraseWithMinorTypo.uppercase(java.util.Locale.ROOT))
+            finalButton.performClick()
+            compose.runOnIdle { assertFalse(unlocked) }
+        }
+        compose.onNodeWithTag("trust_unlock_password_input").assertExists()
+        finalButton.assertDoesNotExist()
+        // Com a frase escrita correta, desbloqueia.
+        passwordSequence(compose.onNodeWithTag("trust_unlock_password_input"), assertIncomplete = { finalButton.assertDoesNotExist() })
+        typeManually(phraseField, level.requiredPhrase.uppercase(java.util.Locale.ROOT))
         finalButton.performClick()
         compose.runOnIdle { assertTrue(unlocked) }
     }

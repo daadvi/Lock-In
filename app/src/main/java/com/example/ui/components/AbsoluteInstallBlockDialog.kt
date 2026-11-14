@@ -76,6 +76,7 @@ import com.example.ui.theme.LocalCustomTextColor
 import com.example.ui.theme.LocalIsDarkTheme
 import com.example.util.EmptyTextToolbar
 import com.example.util.isManualTyping
+import com.example.util.PhraseEntryCheck
 import kotlin.random.Random
 
 @Composable
@@ -105,6 +106,8 @@ fun AbsoluteInstallBlockDialog(
     var passwordInput by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
     var phraseInput by remember { mutableStateOf("") }
+    // 3 chances por frase; errar as 3 reinicia desde a senha. Vermelho só na 1ª falha.
+    val phraseAttempts = rememberPhraseAttemptTracker()
     var emailCodeInput by remember { mutableStateOf("") }
     var generatedEmailCode by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -535,13 +538,12 @@ fun AbsoluteInstallBlockDialog(
                                                 .background(if (isDark) Color(0xFF222226) else Color(0xFFF1F1F4))
                                                 .padding(12.dp)
                                         ) {
-                                            Text(
-                                                text = "\"$targetPhrase\"",
+                                            PhraseTargetDisplay(
+                                                phrase = targetPhrase,
+                                                failedInput = if (phraseAttempts.showErrorHighlight) phraseAttempts.firstFailedInput else null,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = textColor,
-                                                lineHeight = 16.sp,
-                                                fontFamily = FontFamily.Monospace
+                                                color = textColor
                                             )
                                         }
 
@@ -570,11 +572,20 @@ fun AbsoluteInstallBlockDialog(
 
                                         Button(
                                             onClick = {
-                                                if (com.example.util.KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(phraseInput, targetPhrase)) {
+                                                if (PhraseEntryCheck.isExactMatch(phraseInput, targetPhrase)) {
                                                     deactivationStage = 3
                                                     errorMessage = null
+                                                } else if (phraseAttempts.registerFailure(phraseInput)) {
+                                                    // 3ª falha na frase: recomeça desde a senha
+                                                    deactivationStage = 1
+                                                    successfulPassCount = 0
+                                                    passwordInput = ""
+                                                    phraseInput = ""
+                                                    phraseAttempts.reset()
+                                                    errorMessage = "Você errou a frase 3 vezes! A desativação foi reiniciada desde a senha."
                                                 } else {
-                                                    errorMessage = "Frase incorreta! Digite a frase de confirmação."
+                                                    val left = phraseAttempts.attemptsLeft
+                                                    errorMessage = "Frase incorreta! Resta${if (left > 1) "m" else ""} $left chance${if (left > 1) "s" else ""}. Digite exatamente como apresentado."
                                                 }
                                             },
                                             modifier = Modifier.fillMaxWidth().height(48.dp),

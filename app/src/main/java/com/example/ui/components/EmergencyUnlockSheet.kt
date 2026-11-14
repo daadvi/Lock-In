@@ -44,6 +44,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import com.example.util.EmptyTextToolbar
+import com.example.util.PhraseEntryCheck
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -285,9 +286,32 @@ fun EmergencyUnlockScreen(
     var phraseInput by remember { mutableStateOf("") }
 
     val requiredPhrase = EmergencyUnlockManager.CONFIRMATION_PHRASE
-    val isPhraseValid = com.example.util.KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(phraseInput, requiredPhrase)
+    // Frase exata (maiúsculas/minúsculas livres, zero tolerância a typo) + 3 chances.
+    val phraseAttempts = rememberPhraseAttemptTracker()
+    val isPhraseValid = PhraseEntryCheck.isExactMatch(phraseInput, requiredPhrase)
+    val passwordsDone = successfulPassCount >= targetPassCount
 
-    val isFullyReady = successfulPassCount >= targetPassCount && isPhraseValid
+    fun confirmPhraseOrUnlock() {
+        if (isPhraseValid) {
+            EmergencyUnlockManager.recordUnlockUsed(context)
+            Toast.makeText(
+                context,
+                "Dispositivo desbloqueado. Sua sequência foi resetada para 0.",
+                Toast.LENGTH_LONG
+            ).show()
+            onUnlockConfirmed()
+        } else if (phraseAttempts.registerFailure(phraseInput)) {
+            // 3ª falha na frase: volta para a senha
+            successfulPassCount = 0
+            passwordInput = ""
+            phraseInput = ""
+            phraseAttempts.reset()
+            errorMessage = "Você errou a frase 3 vezes! A contagem da senha foi zerada."
+        } else {
+            val left = phraseAttempts.attemptsLeft
+            errorMessage = "Frase incorreta! Resta${if (left > 1) "m" else ""} $left chance${if (left > 1) "s" else ""}. Digite exatamente como pedido."
+        }
+    }
 
     fun verifyPasswordAttempt() {
         if (com.example.util.CryptoPasswordHelper.verifyPassword(passwordInput, correctPassword)) {
@@ -635,14 +659,14 @@ fun EmergencyUnlockScreen(
                                 .border(1.dp, Color(0xFF33333F), RoundedCornerShape(8.dp))
                                 .padding(12.dp)
                         ) {
-                            Text(
-                                text = requiredPhrase,
+                            PhraseTargetDisplay(
+                                phrase = requiredPhrase,
+                                failedInput = if (phraseAttempts.showErrorHighlight) phraseAttempts.firstFailedInput else null,
+                                modifier = Modifier.fillMaxWidth(),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
                                 color = Color(0xFFFFB300),
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth()
+                                textAlign = TextAlign.Center
                             )
                         }
 
@@ -690,18 +714,8 @@ fun EmergencyUnlockScreen(
 
                 // FINAL UNLOCK BUTTON
                 Button(
-                    onClick = {
-                        if (isFullyReady) {
-                            EmergencyUnlockManager.recordUnlockUsed(context)
-                            Toast.makeText(
-                                context,
-                                "Dispositivo desbloqueado. Sua sequência foi resetada para 0.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            onUnlockConfirmed()
-                        }
-                    },
-                    enabled = isFullyReady,
+                    onClick = { if (passwordsDone) confirmPhraseOrUnlock() },
+                    enabled = passwordsDone,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp)
@@ -722,7 +736,11 @@ fun EmergencyUnlockScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isFullyReady) "DESBLOQUEAR (ZERAR SEQUÊNCIA)" else "PREENCHA A SENHA (${targetPassCount}X) E A FRASE",
+                            text = when {
+                                !passwordsDone -> "PREENCHA A SENHA (${targetPassCount}X) E A FRASE"
+                                isPhraseValid -> "DESBLOQUEAR (ZERAR SEQUÊNCIA)"
+                                else -> "CONFIRMAR FRASE (${phraseAttempts.attemptsLeft} CHANCE(S))"
+                            },
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = BlockyFontFamily,

@@ -74,6 +74,7 @@ import com.example.ui.theme.LocalCustomTextColor
 import com.example.ui.theme.LocalIsDarkTheme
 import com.example.util.EmptyTextToolbar
 import com.example.util.isManualTyping
+import com.example.util.PhraseEntryCheck
 
 @Composable
 fun ChangeLockLevelDialog(
@@ -100,6 +101,8 @@ fun ChangeLockLevelDialog(
     var passwordVisible by remember { mutableStateOf(false) }
     var successfulPassCount by remember { mutableIntStateOf(0) }
     var phraseInput by remember { mutableStateOf("") }
+    // 3 chances por frase; errar as 3 reinicia desde a senha. Vermelho só na 1ª falha.
+    val phraseAttempts = rememberPhraseAttemptTracker()
     var currentChallengeStage by remember { mutableIntStateOf(1) } // 1: Password repeats, 2: Phrase
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -236,6 +239,7 @@ fun ChangeLockLevelDialog(
                                                 currentChallengeStage = 1
                                                 passwordInput = ""
                                                 phraseInput = ""
+                                                phraseAttempts.reset()
                                                 errorMessage = null
                                             }
                                         }
@@ -557,13 +561,12 @@ fun ChangeLockLevelDialog(
                                             .background(if (isDark) Color(0xFF222226) else Color(0xFFF1F1F4))
                                             .padding(12.dp)
                                     ) {
-                                        Text(
-                                            text = "\"$requiredPhrase\"",
+                                        PhraseTargetDisplay(
+                                            phrase = requiredPhrase,
+                                            failedInput = if (phraseAttempts.showErrorHighlight) phraseAttempts.firstFailedInput else null,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.SemiBold,
-                                            color = textColor,
-                                            lineHeight = 17.sp,
-                                            fontFamily = FontFamily.Monospace
+                                            color = textColor
                                         )
                                     }
 
@@ -598,10 +601,19 @@ fun ChangeLockLevelDialog(
 
                                     Button(
                                         onClick = {
-                                            if (com.example.util.KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(phraseInput, requiredPhrase)) {
+                                            if (PhraseEntryCheck.isExactMatch(phraseInput, requiredPhrase)) {
                                                 executeLevelChange(target)
+                                            } else if (phraseAttempts.registerFailure(phraseInput)) {
+                                                // 3ª falha na frase: recomeça o desafio desde a senha
+                                                successfulPassCount = 0
+                                                currentChallengeStage = 1
+                                                passwordInput = ""
+                                                phraseInput = ""
+                                                phraseAttempts.reset()
+                                                errorMessage = "Você errou a frase 3 vezes! O desafio foi reiniciado desde a senha."
                                             } else {
-                                                errorMessage = "Frase incorreta! Digite a frase apresentada."
+                                                val left = phraseAttempts.attemptsLeft
+                                                errorMessage = "Frase incorreta! Resta${if (left > 1) "m" else ""} $left chance${if (left > 1) "s" else ""}. Digite exatamente como apresentado."
                                             }
                                         },
                                         modifier = Modifier

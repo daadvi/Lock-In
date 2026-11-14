@@ -65,6 +65,8 @@ import com.example.data.model.LockLevel
 import com.example.service.AppUnlockDailyTracker
 import com.example.ui.components.DotMatrixPattern
 import com.example.ui.components.NothingCard
+import com.example.ui.components.PhraseTargetDisplay
+import com.example.ui.components.rememberPhraseAttemptTracker
 import com.example.ui.theme.CmfBorder
 import com.example.ui.theme.CmfDark
 import com.example.ui.theme.CmfLightGray
@@ -73,6 +75,7 @@ import com.example.ui.theme.CmfWhite
 import com.example.ui.theme.LocalCustomTextColor
 import com.example.ui.theme.LocalIsDarkTheme
 import com.example.util.CryptoPasswordHelper
+import com.example.util.PhraseEntryCheck
 import com.example.util.EmptyTextToolbar
 import com.example.util.isManualTyping
 
@@ -112,6 +115,9 @@ fun TrustUnlockScreen(
 
     var isVerifying by remember { mutableStateOf(false) }
 
+    // 3 chances por frase; errar as 3 volta para a senha. Vermelho só na 1ª falha.
+    val phraseAttempts = rememberPhraseAttemptTracker()
+
     fun verifyCurrentEntry() {
         if (isVerifying) return
         isVerifying = true
@@ -132,8 +138,8 @@ fun TrustUnlockScreen(
                     passwordInput = ""
                 }
             } else {
-                // Final step: Phrase confirmation with intelligent keyboard proximity tolerance and case insensitivity
-                if (com.example.util.KeyboardFuzzyMatcher.matchesWithKeyboardTolerance(phraseInput, requiredPhrase)) {
+                // Final step: exact phrase (case-insensitive, zero typo tolerance), 3 chances
+                if (PhraseEntryCheck.isExactMatch(phraseInput, requiredPhrase)) {
                     if (targetPackageName != null) {
                         AppUnlockDailyTracker.recordAppUnlocked(context, targetPackageName)
                     }
@@ -141,8 +147,15 @@ fun TrustUnlockScreen(
                     errorMessage = null
                     pasteWarning = null
                     onUnlockConfirmed()
+                } else if (phraseAttempts.registerFailure(phraseInput)) {
+                    successfulCount = 0
+                    passwordInput = ""
+                    phraseInput = ""
+                    phraseAttempts.reset()
+                    errorMessage = "Você errou a frase 3 vezes! A contagem foi zerada e voltou para a senha."
                 } else {
-                    errorMessage = "Frase incorreta! Digite a frase:\n\"$requiredPhrase\""
+                    val left = phraseAttempts.attemptsLeft
+                    errorMessage = "Frase incorreta! Resta${if (left > 1) "m" else ""} $left chance${if (left > 1) "s" else ""}. Digite exatamente como pedido."
                 }
             }
         } finally {
@@ -498,14 +511,14 @@ fun TrustUnlockScreen(
                                                 .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
                                                 .padding(10.dp)
                                         ) {
-                                            Text(
-                                                text = requiredPhrase,
+                                            PhraseTargetDisplay(
+                                                phrase = requiredPhrase,
+                                                failedInput = if (phraseAttempts.showErrorHighlight) phraseAttempts.firstFailedInput else null,
+                                                modifier = Modifier.fillMaxWidth(),
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace,
                                                 color = accentColor,
-                                                textAlign = TextAlign.Center,
-                                                modifier = Modifier.fillMaxWidth()
+                                                textAlign = TextAlign.Center
                                             )
                                         }
                                         Spacer(modifier = Modifier.height(10.dp))
