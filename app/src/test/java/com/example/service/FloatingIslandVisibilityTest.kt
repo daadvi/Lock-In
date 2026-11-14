@@ -67,6 +67,13 @@ class FloatingIslandVisibilityTest {
             .apply { isAccessible = true }
             .get(LimitTimerManager) as MutableStateFlow<ActiveSessionState>
 
+    /** The ticker marks the app depleted AFTER emitting the blocked state, so poll for it. */
+    private suspend fun awaitDepleted(packageName: String, timeoutMs: Long = 10000) {
+        withTimeout(timeoutMs) {
+            while (!AppBlockEnforcer.isAppDepleted(packageName)) delay(20)
+        }
+    }
+
     private suspend fun awaitState(timeoutMs: Long = 10000, predicate: (ActiveSessionState) -> Boolean): ActiveSessionState {
         val flow = stateFlow()
         withTimeout(timeoutMs) {
@@ -173,7 +180,9 @@ class FloatingIslandVisibilityTest {
         try {
             LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = false, isVideoActive = true)
             awaitState(15000) { it.isBlocked && it.packageName == pkg }
-            assertTrue(AppBlockEnforcer.isAppDepleted(pkg))
+            // The blocked state is emitted before the ticker marks the app depleted,
+            // so poll instead of asserting instantly (CI machines are fast enough to win the race).
+            awaitDepleted(pkg)
             val started = awaitStartedActivity()
             assertEquals(BlockedActivity::class.java.name, started.component?.className)
             assertEquals(true, started.getBooleanExtra(BlockedActivity.EXTRA_IS_DEPLETED_LIMIT, false))
