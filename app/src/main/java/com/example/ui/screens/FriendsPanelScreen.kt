@@ -1,6 +1,6 @@
 package com.example.ui.screens
 
-import com.example.ui.tutorial.tutorialTarget
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -153,7 +153,7 @@ fun FriendsPanelScreen(
                         Column {
                             Text(
                                 text = "FRIENDS PANEL",
-                                modifier = Modifier.tutorialTarget("friends"),
+                                modifier = Modifier,
                                 fontFamily = BlockyFontFamily,
                                 fontWeight = FontWeight.Black,
                                 fontSize = 16.sp,

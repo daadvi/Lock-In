@@ -1,6 +1,6 @@
 package com.example.ui.screens
 
-import com.example.ui.tutorial.tutorialTarget
+
 import android.content.Intent
 import android.provider.Settings
 import android.widget.Toast
@@ -234,7 +234,7 @@ fun StatisticsScreen(
                             .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(18.dp))
                             .clickable { showStreakModal = true }
                             .padding(horizontal = 10.dp, vertical = 6.dp)
-                            .testTag("stats_streak_top_left_button").tutorialTarget("streak")
+                            .testTag("stats_streak_top_left_button")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -291,14 +291,10 @@ fun StatisticsScreen(
                     }
                 }
 
-                val tutorial = com.example.ui.tutorial.LocalTutorialController.current
-                val tutorialListState = androidx.compose.foundation.lazy.rememberLazyListState()
-                LaunchedEffect(tutorial?.target) {
-                    val index = when(tutorial?.target) { "statistics" -> 1; "adherence" -> 4; else -> null }
-                    if (index != null) tutorialListState.scrollToItem(index + if (hasUsagePermission) 0 else 1)
-                }
+                
+                val statisticsListState = androidx.compose.foundation.lazy.rememberLazyListState()
                 LazyColumn(
-                    state = tutorialListState,
+                    state = statisticsListState,
                     modifier = Modifier.fillMaxSize().testTag("stats_content"),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
@@ -427,7 +423,7 @@ fun StatisticsScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(24.dp))
                                 .background(MaterialTheme.colorScheme.surface)
-                                .testTag("stats_chart_card").tutorialTarget("statistics")
+                                .testTag("stats_chart_card")
                                 .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp))
                                 .padding(top = 22.dp, bottom = 14.dp, start = 16.dp, end = 16.dp)
                         ) {
@@ -650,7 +646,7 @@ fun StatisticsScreen(
 
                                 // Donut Gauge Container
                                 Box(
-                                    modifier = Modifier.size(154.dp).testTag("stats_adherence_gauge").tutorialTarget("adherence"),
+                                    modifier = Modifier.size(154.dp).testTag("stats_adherence_gauge"),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     val animatedProgress by animateFloatAsState(

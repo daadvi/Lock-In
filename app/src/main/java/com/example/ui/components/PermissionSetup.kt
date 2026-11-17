@@ -39,7 +39,7 @@ import com.example.util.AppPermission
 import com.example.util.PermissionAccess
 import com.example.util.PermissionSnapshot
 import com.example.util.PermissionStatus
-import com.example.ui.tutorial.tutorialTarget
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -165,7 +165,7 @@ fun PermissionSetup(
             contentPadding = PaddingValues(bottom = 12.dp)
         ) {
             item(key = "progress") {
-                Card(modifier = Modifier.fillMaxWidth().tutorialTarget("permissions"), colors = CardDefaults.cardColors(
+                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSurface
                 )) {
@@ -246,7 +246,7 @@ fun PermissionSetup(
             val missingEssential = snapshot?.missingEssential.orEmpty()
             val requiredForContinue = requireEssentialPermissions && missingEssential.isNotEmpty()
             if (requiredForContinue) {
-                Text("O tutorial continua depois que os acessos essenciais forem ativados.",
+                Text("A configuração continua depois que os acessos essenciais forem ativados.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.testTag("permission_tutorial_requirement"))
             } else if (missingEssential.isNotEmpty()) {

@@ -1,6 +1,4 @@
 package com.example.ui.screens
-import com.example.ui.tutorial.tutorialTarget
-import com.example.ui.tutorial.LocalTutorialController
 import com.example.ui.theme.BlockyFontFamily
 import com.example.util.PasswordValidator
 import com.example.ui.components.AccountSyncDialog
@@ -126,21 +124,7 @@ fun OnboardingScreen(
     var registeredName by onboardingState.name
     var registeredPassword by onboardingState.password
     var selectedLockLevel by onboardingState.lockLevel
-    val tutorial = LocalTutorialController.current
-    val tutorialPreferences = remember(context) { context.getSharedPreferences("lock_in_tutorial", 0) }
-
-    // The first-use guide begins on its own unless the person explicitly hid it.
-    LaunchedEffect(tutorial) {
-        if (tutorial != null && tutorial.chapter == null &&
-            !tutorialPreferences.getBoolean("completed", false) &&
-            !tutorialPreferences.getBoolean("hidden", false)
-        ) {
-            tutorial.start(chapter = 0, guided = true)
-        }
-    }
-    LaunchedEffect(currentStep, tutorial) {
-        if (currentStep != OnboardingStep.EMAIL_AUTH) tutorial?.markCredentialsComplete()
-    }
+    
 
     androidx.activity.compose.BackHandler(enabled = currentStep != OnboardingStep.EMAIL_AUTH) {
         currentStep = if (currentStep == OnboardingStep.LOCK_LEVEL) OnboardingStep.PERMISSIONS else OnboardingStep.EMAIL_AUTH
@@ -173,8 +157,6 @@ fun OnboardingScreen(
                     }
                 )
 
-                com.example.ui.tutorial.TutorialEntry(guidedOnboarding = true)
-
                 Spacer(modifier = Modifier.height(16.dp))
 
                 AnimatedContent(
@@ -190,11 +172,7 @@ fun OnboardingScreen(
                             )
                         }
                     },
-                    modifier = Modifier.weight(1f).tutorialTarget(when (currentStep) {
-                        OnboardingStep.PERMISSIONS -> "onboarding_permissions_content"
-                        OnboardingStep.LOCK_LEVEL -> "levels"
-                        else -> "onboarding_content"
-                    }),
+                    modifier = Modifier.weight(1f),
                     label = "onboarding_step_content"
                 ) { step ->
                     when (step) {
@@ -210,10 +188,7 @@ fun OnboardingScreen(
                         }
                         OnboardingStep.PERMISSIONS -> {
                             com.example.ui.components.PermissionSetup(
-                                requireEssentialPermissions = tutorial?.guidedOnboarding == true && tutorial.visible,
-                                onPermissionsChanged = { snapshot ->
-                                    tutorial?.updateEssentialPermissions(snapshot.missingEssential.isEmpty())
-                                },
+                                requireEssentialPermissions = true,
                                 onContinue = {
                                     currentStep = OnboardingStep.LOCK_LEVEL
                                 }
@@ -229,7 +204,6 @@ fun OnboardingScreen(
                                     if (Settings.canDrawOverlays(context)) {
                                         com.example.service.FloatingIslandService.showIsland(context)
                                     }
-                                    tutorial?.markLockLevelComplete()
                                     onCompleteRegistration(
                                         registeredName.trim().ifBlank { "Foco" },
                                         registeredPassword
@@ -251,7 +225,7 @@ private fun StepProgressHeader(
     accentColor: Color,
     onBackClick: () -> Unit
 ) {
-    Column(Modifier.tutorialTarget("overview"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (currentStep != OnboardingStep.EMAIL_AUTH) {
                 IconButton(onClick = onBackClick) {
@@ -630,7 +604,7 @@ private fun EmailAuthStepContent(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("email_auth_email_input").tutorialTarget("account"),
+                    .testTag("email_auth_email_input"),
                 shape = RoundedCornerShape(10.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 colors = cmfTextFieldColors(accentColor = accentColor)

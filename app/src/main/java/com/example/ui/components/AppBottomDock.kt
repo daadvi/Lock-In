@@ -1,6 +1,6 @@
 package com.example.ui.components
 
-import com.example.ui.tutorial.tutorialTarget
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -107,7 +107,7 @@ fun AppBottomDock(
 
     // Outer floating pill dock with rounded corners and subtle shadow/border
     Box(
-        modifier = modifier.widthIn(max = 336.dp).tutorialTarget("overview")
+        modifier = modifier.widthIn(max = 336.dp)
             .shadow(
                 elevation = 8.dp,
                 shape = RoundedCornerShape(32.dp),

@@ -1,5 +1,5 @@
 package com.example.ui.screens
-import com.example.ui.tutorial.tutorialTarget
+
 import com.example.ui.theme.BlockyFontFamily
 
 import android.content.Context
@@ -256,7 +256,7 @@ fun AppSelectionScreen(
                             .background(if (selectedTab == 0) accentColor else Color.Transparent)
                             .clickable { selectedTab = 0 }
                             .padding(vertical = 8.dp)
-                            .testTag("tab_individual_limits").tutorialTarget("apps"),
+                            .testTag("tab_individual_limits"),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -276,7 +276,7 @@ fun AppSelectionScreen(
                             .background(if (selectedTab == 1) accentColor else Color.Transparent)
                             .clickable { selectedTab = 1 }
                             .padding(vertical = 8.dp)
-                            .testTag("tab_group_limits").tutorialTarget("groups"),
+                            .testTag("tab_group_limits"),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {

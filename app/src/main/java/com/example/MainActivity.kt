@@ -1,6 +1,6 @@
 package com.example
 
-import com.example.ui.tutorial.tutorialTarget
+import com.example.ui.components.FirstVisitHintOverlay
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -183,18 +183,7 @@ class MainActivity : ComponentActivity() {
                 } catch (_: Exception) {}
             }
 
-            var tutorialReturnScreen by rememberSaveable { mutableStateOf<String?>(null) }
             LockInTheme(customTextColor = customAccentColor, themeMode = themeMode) {
-                com.example.ui.tutorial.TutorialHost(
-                    onStart = { tutorialReturnScreen = currentScreen.name },
-                    onNavigate = { chapter ->
-                        if (isRegistered && !onboardingInProgress) currentScreen = com.example.ui.tutorial.tutorialScreen(chapter)
-                    },
-                    onFinish = {
-                        tutorialReturnScreen?.let { currentScreen = Screen.valueOf(it) }
-                        tutorialReturnScreen = null
-                    }
-                ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -495,9 +484,11 @@ class MainActivity : ComponentActivity() {
                                         .padding(bottom = 10.dp)
                                 )
                             }
+
+                            // Dica de primeira visita em cada área ainda não explorada
+                            FirstVisitHintOverlay(screen = currentScreen)
                         }
                     }
-                }
                 }
             }
         }

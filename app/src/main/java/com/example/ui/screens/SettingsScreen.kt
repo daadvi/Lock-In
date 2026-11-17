@@ -1,6 +1,5 @@
 package com.example.ui.screens
 
-import com.example.ui.tutorial.tutorialTarget
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -194,7 +193,6 @@ fun SettingsScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
-    val tutorial = com.example.ui.tutorial.LocalTutorialController.current
     val gridState = rememberLazyGridState()
     val isBankingPaused by com.example.service.BankingSecurityHelper.isPausedFlow.collectAsStateWithLifecycle()
     val isVpnRunning by LockInVpnManager.isVpnRunning.collectAsStateWithLifecycle()
@@ -266,16 +264,7 @@ fun SettingsScreen(
         )
     )
     val showNotificationNotice = streakRemindersEnabled && !notificationsAllowed
-    val tutorialIndexes = buildMap {
-        var index = if (showNotificationNotice) 3 else 2
-        sections.forEach { (_, tiles) ->
-            index++ // section heading
-            tiles.forEach { tile -> if (tile.target.isNotEmpty()) put(tile.target, index); index++ }
-        }
-    }
-    LaunchedEffect(tutorial?.target, showNotificationNotice) {
-        tutorialIndexes[tutorial?.target]?.let { gridState.scrollToItem(it) }
-    }
+    
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Box(Modifier.fillMaxSize()) {
@@ -317,7 +306,7 @@ fun SettingsScreen(
                             }
                             tiles.forEach { tile -> item(key = tile.key) { SettingsGridTile(tile, accentColor) } }
                         }
-                        item(key = "tutorial", span = { GridItemSpan(maxLineSpan) }) { com.example.ui.tutorial.TutorialEntry() }
+                        
                     }
                 }
             }
@@ -693,7 +682,7 @@ private fun SettingsGridTile(tile: SettingsTile, accentColor: Color) {
     val tag = if (tile.checked != null) "settings_toggle_${tile.key}" else "settings_${tile.key}"
     val action = if (tile.checked != null) Modifier.toggleable(tile.checked, role = Role.Switch, onValueChange = { tile.onClick() })
         else Modifier.clickable(role = Role.Button, onClick = tile.onClick)
-    Column(Modifier.fillMaxWidth().heightIn(min = 168.dp).tutorialTarget(tile.target).testTag(tag)
+    Column(Modifier.fillMaxWidth().heightIn(min = 168.dp).testTag(tag)
         .clip(shape).background(MaterialTheme.colorScheme.surface)
         .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape).then(action).padding(14.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

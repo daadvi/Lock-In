@@ -1,5 +1,5 @@
 package com.example.ui.screens
-import com.example.ui.tutorial.tutorialTarget
+
 import com.example.ui.theme.BlockyFontFamily
 
 import android.content.Context
@@ -305,7 +305,7 @@ fun FocusTimeScreen(
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (selectedTab == 1) activeTabBg else Color.Transparent)
-                            .tutorialTarget("routines").clickable { selectedTab = 1 }
+                            .clickable { selectedTab = 1 }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -335,7 +335,7 @@ fun FocusTimeScreen(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(if (isDark) Color(0xFF2C1712) else Color(0xFFFFF0ED))
-                                    .testTag("focus_warning_card").tutorialTarget("focus")
+                                    .testTag("focus_warning_card")
                                     .border(1.5.dp, Color(0xFFFF4400), RoundedCornerShape(12.dp))
                                     .padding(14.dp)
                             ) {
