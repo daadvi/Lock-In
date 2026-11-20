@@ -133,7 +133,7 @@ fun FocusTimeScreen(
     // Routines State
     val routines = remember { mutableStateListOf<FocusRoutine>() }
     val expandedAppPackages = remember { mutableStateListOf<String>() }
-    var targetAppForNewRoutine by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val targetAppsForNewRoutine = remember { mutableStateListOf<Pair<String, String>>() }
     var showAppPickerToCreateRoutine by remember { mutableStateOf(false) }
 
     // Presets State
@@ -218,9 +218,10 @@ fun FocusTimeScreen(
                 expandedAppPackages.add(initialTargetPackage)
             }
             val appName = initialTargetAppName ?: installedApps.firstOrNull { it.packageName == initialTargetPackage }?.appName ?: "App"
-            val hasRoutines = routines.any { it.targetPackage == initialTargetPackage }
+            val hasRoutines = routines.any { initialTargetPackage in it.resolvedTargetPackages }
             if (!hasRoutines) {
-                targetAppForNewRoutine = Pair(initialTargetPackage, appName)
+                targetAppsForNewRoutine.clear()
+                    targetAppsForNewRoutine.add(Pair(initialTargetPackage, appName))
                 showCreateRoutineDialog = true
             }
         }
@@ -850,7 +851,9 @@ fun FocusTimeScreen(
                     }
                 } else {
                     // --- TAB 2: ROTINAS DE BLOQUEIO SEPARADAS POR APPS (FOTO 1 & REQUISITO 1) ---
-                    val appRoutinesMap = routines.filter { it.isAppSpecific }.groupBy { it.targetPackage!! }
+                    val appRoutinesMap = routines.filter { it.isAppSpecific }
+                            .flatMap { r -> r.resolvedTargetPackages.map { pkg -> pkg to r } }
+                            .groupBy({ it.first }, { it.second })
                     val generalRoutines = routines.filter { !it.isAppSpecific }
 
                     LazyColumn(
@@ -955,8 +958,8 @@ fun FocusTimeScreen(
                         // APPS SPECIFIC ROUTINES (Grouped by App with Expandable Accordion)
                         appRoutinesMap.forEach { (targetPkg, appRoutineList) ->
                             val isExpanded = expandedAppPackages.contains(targetPkg)
-                            val appName = appRoutineList.firstOrNull()?.targetAppName
-                                ?: installedApps.firstOrNull { it.packageName == targetPkg }?.appName
+                            val appName = installedApps.firstOrNull { it.packageName == targetPkg }?.appName
+                                ?: appRoutineList.firstOrNull()?.targetAppName
                                 ?: targetPkg.split(".").lastOrNull()
                                 ?: targetPkg
 
@@ -1074,7 +1077,8 @@ fun FocusTimeScreen(
                                             // CTA to add another routine for THIS app
                                             Button(
                                                 onClick = {
-                                                    targetAppForNewRoutine = Pair(targetPkg, appName)
+                                                    targetAppsForNewRoutine.clear()
+                                                        targetAppsForNewRoutine.add(Pair(targetPkg, appName))
                                                     showCreateRoutineDialog = true
                                                 },
                                                 modifier = Modifier.fillMaxWidth(),
@@ -1190,7 +1194,7 @@ fun FocusTimeScreen(
                                         Spacer(modifier = Modifier.height(8.dp))
                                         Button(
                                             onClick = {
-                                                targetAppForNewRoutine = null
+                                                targetAppsForNewRoutine.clear()
                                                 showCreateRoutineDialog = true
                                             },
                                             modifier = Modifier.fillMaxWidth(),
@@ -1235,7 +1239,20 @@ fun FocusTimeScreen(
                     val appName = installedApps.firstOrNull { it.packageName == selectedPkg }?.appName
                         ?: selectedPkg.split(".").lastOrNull()
                         ?: selectedPkg
-                    targetAppForNewRoutine = Pair(selectedPkg, appName)
+                    targetAppsForNewRoutine.clear()
+                    targetAppsForNewRoutine.add(Pair(selectedPkg, appName))
+                    showAppPickerToCreateRoutine = false
+                    showCreateRoutineDialog = true
+                },
+                allowMultiple = true,
+                onConfirmMultiple = { selected ->
+                    targetAppsForNewRoutine.clear()
+                    selected.forEach { pkg ->
+                        val appName = installedApps.firstOrNull { it.packageName == pkg }?.appName
+                            ?: pkg.split(".").lastOrNull()
+                            ?: pkg
+                        targetAppsForNewRoutine.add(Pair(pkg, appName))
+                    }
                     showAppPickerToCreateRoutine = false
                     showCreateRoutineDialog = true
                 }
@@ -1300,7 +1317,7 @@ fun FocusTimeScreen(
                                 .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
                                 .clickable {
                                     showRoutineTypeChoiceDialog = false
-                                    targetAppForNewRoutine = null
+                                    targetAppsForNewRoutine.clear()
                                     showCreateRoutineDialog = true
                                 }
                                 .padding(12.dp)
@@ -1357,22 +1374,22 @@ fun FocusTimeScreen(
             CreateRoutineDialog(
                 installedApps = installedApps,
                 accentColor = accentColor,
-                targetPackage = targetAppForNewRoutine?.first,
-                targetAppName = targetAppForNewRoutine?.second,
+                targetPackages = targetAppsForNewRoutine.map { it.first },
+                targetAppNames = targetAppsForNewRoutine.map { it.second },
                 onDismiss = {
                     showCreateRoutineDialog = false
-                    targetAppForNewRoutine = null
+                    targetAppsForNewRoutine.clear()
                 },
                 onSave = { newRoutine ->
                     FocusTimeManager.saveRoutine(context, newRoutine)
                     routines.add(newRoutine)
-                    newRoutine.targetPackage?.let { pkg ->
+                    newRoutine.resolvedTargetPackages.forEach { pkg ->
                         if (!expandedAppPackages.contains(pkg)) {
                             expandedAppPackages.add(pkg)
                         }
                     }
                     showCreateRoutineDialog = false
-                    targetAppForNewRoutine = null
+                    targetAppsForNewRoutine.clear()
                     Toast.makeText(context, "Rotina programada com sucesso!", Toast.LENGTH_SHORT).show()
                 }
             )
@@ -1945,10 +1962,14 @@ fun AppExceptionPickerDialog(
     installedApps: List<SelectableApp>,
     accentColor: Color,
     onDismiss: () -> Unit,
-    onSelectApp: (String) -> Unit
+    onSelectApp: (String) -> Unit,
+    allowMultiple: Boolean = false,
+    initiallySelected: List<String> = emptyList(),
+    onConfirmMultiple: ((List<String>) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
+    val multiSelected = remember { mutableStateListOf<String>().apply { addAll(initiallySelected) } }
 
     Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -2057,6 +2078,9 @@ fun AppExceptionPickerDialog(
                                             "Jogos não podem ser colocados como exceção!",
                                             Toast.LENGTH_SHORT
                                         ).show()
+                                    } else if (allowMultiple) {
+                                        if (multiSelected.contains(app.packageName)) multiSelected.remove(app.packageName)
+                                        else multiSelected.add(app.packageName)
                                     } else {
                                         onSelectApp(app.packageName)
                                     }
@@ -2091,6 +2115,14 @@ fun AppExceptionPickerDialog(
                                 }
                             }
 
+                            if (allowMultiple && multiSelected.contains(app.packageName) && !app.isGame) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = accentColor,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                             if (app.isGame) {
                                 Box(
                                     modifier = Modifier
@@ -2112,13 +2144,32 @@ fun AppExceptionPickerDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                if (allowMultiple) {
+                    Button(
+                        onClick = { onConfirmMultiple?.invoke(multiSelected.toList()) },
+                        enabled = multiSelected.isNotEmpty(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("multi_app_picker_confirm"),
+                        colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = Color.White),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            "CONTINUAR COM ${multiSelected.size} APP(S)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant, contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("Fechar", fontSize = 12.sp)
+                    Text(if (allowMultiple) "Cancelar" else "Fechar", fontSize = 12.sp)
                 }
             }
         }
@@ -2129,14 +2180,18 @@ fun AppExceptionPickerDialog(
 fun CreateRoutineDialog(
     installedApps: List<SelectableApp>,
     accentColor: Color,
-    targetPackage: String? = null,
-    targetAppName: String? = null,
+    targetPackages: List<String> = emptyList(),
+    targetAppNames: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSave: (FocusRoutine) -> Unit
 ) {
     val context = LocalContext.current
-    val defaultName = if (!targetAppName.isNullOrBlank()) "Bloqueio $targetAppName" else "Foco Noturno"
-    var name by remember(targetAppName) { mutableStateOf(defaultName) }
+    val defaultName = when {
+        targetAppNames.size > 1 -> "Bloqueio de ${targetAppNames.size} apps"
+        targetAppNames.size == 1 -> "Bloqueio ${targetAppNames.first()}"
+        else -> "Foco Noturno"
+    }
+    var name by remember(targetAppNames) { mutableStateOf(defaultName) }
     var startHour by remember { mutableIntStateOf(21) }
     var startMinute by remember { mutableIntStateOf(0) }
     var endHour by remember { mutableIntStateOf(5) }
@@ -2163,17 +2218,41 @@ fun CreateRoutineDialog(
                     .verticalScroll(scrollState)
             ) {
                 Text(
-                    text = if (targetAppName != null) "ROTINA PARA ${targetAppName.uppercase()}" else "NOVA ROTINA DE BLOQUEIO",
+                    text = when {
+                    targetAppNames.size > 1 -> "ROTINA PARA ${targetAppNames.size} APPS"
+                    targetAppNames.size == 1 -> "ROTINA PARA ${targetAppNames.first().uppercase()}"
+                    else -> "NOVA ROTINA DE BLOQUEIO"
+                },
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Black,
                     fontFamily = BlockyFontFamily,
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                if (targetAppName != null) {
+if (targetPackages.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Apps bloqueados por esta rotina:",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontFamily = BlockyFontFamily
+                    )
+                    targetAppNames.forEach { appName ->
+                        Text(
+                            text = "• $appName",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = accentColor,
+                            fontFamily = BlockyFontFamily
+                        )
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Este aplicativo será bloqueado automaticamente nos horários programados.",
+                        text = if (targetPackages.size > 1) {
+                            "Todos estes aplicativos serão bloqueados automaticamente nos horários programados."
+                        } else {
+                            "Este aplicativo será bloqueado automaticamente nos horários programados."
+                        },
                         fontSize = 10.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontFamily = BlockyFontFamily
@@ -2298,7 +2377,7 @@ fun CreateRoutineDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Allowed apps row (Max 3) - Only relevant for Device-Wide routine (Foto 1 & Requisito 1)
-                if (targetPackage.isNullOrBlank()) {
+                if (targetPackages.isEmpty()) {
                     Text(
                         text = "Apps permitidos durante esta rotina (máx 3):",
                         fontSize = 11.sp,
@@ -2371,8 +2450,8 @@ fun CreateRoutineDialog(
                                 endMinute = endMinute,
                                 daysOfWeek = selectedDays.sorted(),
                                 allowedPackages = selectedAllowed.take(3),
-                                targetPackage = targetPackage,
-                                targetAppName = targetAppName
+                                targetPackages = targetPackages,
+                                targetAppNames = targetAppNames
                             )
                             onSave(routine)
                         },

@@ -418,8 +418,10 @@ object CloudSyncManager {
                         put("daysOfWeek", JSONArray(r.daysOfWeek))
                         put("allowedPackages", JSONArray(r.allowedPackages))
                         put("isEnabled", r.isEnabled)
-                        put("targetPackage", r.targetPackage ?: JSONObject.NULL)
-                        put("targetAppName", r.targetAppName ?: JSONObject.NULL)
+                        put("targetPackage", r.resolvedTargetPackages.firstOrNull() ?: JSONObject.NULL)
+                        put("targetAppName", r.resolvedTargetNames.firstOrNull() ?: JSONObject.NULL)
+                        put("targetPackages", JSONArray(r.resolvedTargetPackages))
+                        put("targetAppNames", JSONArray(r.resolvedTargetNames))
                     }
                     routineArray.put(rObj)
                 }
@@ -657,6 +659,18 @@ object CloudSyncManager {
                     if (pkgsArr != null) {
                         for (p in 0 until pkgsArr.length()) pkgs.add(pkgsArr.getString(p))
                     }
+                    val legacyTarget = rObj.optString("targetPackage").takeIf { !rObj.isNull("targetPackage") && it.isNotBlank() }
+                    val restoredTargets = buildList {
+                        val tArr = rObj.optJSONArray("targetPackages")
+                        if (tArr != null) { for (t in 0 until tArr.length()) add(tArr.getString(t)) }
+                        else listOfNotNull(legacyTarget).forEach { add(it) }
+                    }.filter { it.isNotBlank() }.distinct()
+                    val legacyTargetName = rObj.optString("targetAppName").takeIf { !rObj.isNull("targetAppName") && it.isNotBlank() }
+                    val restoredTargetNames = buildList {
+                        val tArr = rObj.optJSONArray("targetAppNames")
+                        if (tArr != null) { for (t in 0 until tArr.length()) add(tArr.getString(t)) }
+                        else listOfNotNull(legacyTargetName).forEach { add(it) }
+                    }.filter { it.isNotBlank() }
                     restoredRoutines.add(
                         FocusRoutine(
                             id = rObj.getString("id"),
@@ -668,8 +682,10 @@ object CloudSyncManager {
                             daysOfWeek = if (days.isEmpty()) listOf(1, 2, 3, 4, 5, 6, 7) else days,
                             allowedPackages = pkgs.take(3),
                             isEnabled = rObj.optBoolean("isEnabled", true),
-                            targetPackage = rObj.optString("targetPackage").takeIf { !rObj.isNull("targetPackage") && it.isNotBlank() },
-                            targetAppName = rObj.optString("targetAppName").takeIf { !rObj.isNull("targetAppName") && it.isNotBlank() }
+                            targetPackage = restoredTargets.firstOrNull(),
+                            targetAppName = restoredTargetNames.firstOrNull(),
+                            targetPackages = restoredTargets,
+                            targetAppNames = restoredTargetNames
                         )
                     )
                 }

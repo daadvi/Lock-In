@@ -536,7 +536,9 @@ class LockInAccessibilityService : AccessibilityService() {
                 lastAppRoutineBlockEpoch = now
                 performGlobalAction(GLOBAL_ACTION_HOME)
                 val blockIntent = Intent(applicationContext, com.example.BlockedActivity::class.java).apply {
-                    putExtra(com.example.BlockedActivity.EXTRA_BLOCKED_TARGET, activeAppRoutine.targetAppName ?: activeAppRoutine.name)
+                    putExtra(com.example.BlockedActivity.EXTRA_BLOCKED_TARGET,
+                        activeAppRoutine.resolvedTargetNames.joinToString(", ").takeIf { it.isNotBlank() }
+                            ?: activeAppRoutine.name)
                     putExtra(com.example.BlockedActivity.EXTRA_PROHIBITED_PACKAGE, pkg)
                     putExtra(
                         com.example.BlockedActivity.EXTRA_BLOCKED_REASON,

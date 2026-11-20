@@ -363,7 +363,7 @@ object FocusTimeManager {
             } else true
             for (r in getRoutines(context)) {
                 val requestCode = r.id.hashCode()
-                if (!r.isEnabled || !r.targetPackage.isNullOrBlank()) {
+                if (!r.isEnabled || r.isAppSpecific) {
                     val existing = PendingIntent.getBroadcast(context, requestCode,
                         Intent(context, FocusRoutineAlarmReceiver::class.java),
                         PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
@@ -455,6 +455,16 @@ object FocusTimeManager {
 
                 val targetPackage = obj.optString("targetPackage", "").takeIf { it.isNotBlank() }
                 val targetAppName = obj.optString("targetAppName", "").takeIf { it.isNotBlank() }
+                val targetPackages = buildList {
+                    val arr = obj.optJSONArray("targetPackages")
+                    if (arr != null) for (i in 0 until arr.length()) add(arr.getString(i))
+                    else listOfNotNull(targetPackage).forEach { add(it) }
+                }.filter { it.isNotBlank() }.distinct()
+                val targetAppNames = buildList {
+                    val arr = obj.optJSONArray("targetAppNames")
+                    if (arr != null) for (i in 0 until arr.length()) add(arr.getString(i))
+                    else listOfNotNull(targetAppName).forEach { add(it) }
+                }.filter { it.isNotBlank() }
 
                 list.add(
                     FocusRoutine(
@@ -467,8 +477,10 @@ object FocusTimeManager {
                         daysOfWeek = days,
                         allowedPackages = pkgs.take(3),
                         isEnabled = obj.optBoolean("isEnabled", true),
-                        targetPackage = targetPackage,
-                        targetAppName = targetAppName
+                        targetPackage = targetPackages.firstOrNull(),
+                        targetAppName = targetAppNames.firstOrNull(),
+                        targetPackages = targetPackages,
+                        targetAppNames = targetAppNames
                     )
                 )
             }
@@ -535,8 +547,15 @@ object FocusTimeManager {
                 val pArr = JSONArray()
                 r.allowedPackages.take(3).forEach { pArr.put(it) }
                 put("allowedPackages", pArr)
-                put("targetPackage", r.targetPackage ?: "")
-                put("targetAppName", r.targetAppName ?: "")
+                val targetPkgs = r.resolvedTargetPackages
+                put("targetPackage", targetPkgs.firstOrNull() ?: "")
+                put("targetAppName", r.resolvedTargetNames.firstOrNull() ?: "")
+                val tpArr = JSONArray()
+                targetPkgs.forEach { tpArr.put(it) }
+                put("targetPackages", tpArr)
+                val tnArr = JSONArray()
+                r.resolvedTargetNames.forEach { tnArr.put(it) }
+                put("targetAppNames", tnArr)
             }
             array.put(obj)
         }
@@ -629,8 +648,8 @@ object FocusTimeManager {
     }
 
     private fun findActiveRoutine(context: Context): FocusRoutine? {
-        // Only device-wide routines (targetPackage null or blank) trigger full phone focus lockdown
-        val routines = getRoutines(context).filter { it.isEnabled && it.targetPackage.isNullOrBlank() }
+        // Only device-wide routines (no target app) trigger full phone focus lockdown
+        val routines = getRoutines(context).filter { it.isEnabled && !it.isAppSpecific }
         val now = Calendar.getInstance()
         val currentDay = when (now.get(Calendar.DAY_OF_WEEK)) {
             Calendar.MONDAY -> 1
@@ -668,7 +687,7 @@ object FocusTimeManager {
      */
     fun getActiveAppRoutine(context: Context, packageName: String?): FocusRoutine? {
         if (packageName.isNullOrBlank()) return null
-        val routines = getRoutines(context).filter { it.isEnabled && it.targetPackage == packageName }
+        val routines = getRoutines(context).filter { it.isEnabled && packageName in it.resolvedTargetPackages }
         if (routines.isEmpty()) return null
 
         val now = Calendar.getInstance()
@@ -706,19 +725,19 @@ object FocusTimeManager {
     }
 
     fun getRoutinesForApp(context: Context, packageName: String): List<FocusRoutine> {
-        return getRoutines(context).filter { it.targetPackage == packageName }
+        return getRoutines(context).filter { packageName in it.resolvedTargetPackages }
     }
 
     fun getAppRoutines(context: Context): List<FocusRoutine> {
-        return getRoutines(context).filter { !it.targetPackage.isNullOrBlank() }
+        return getRoutines(context).filter { it.isAppSpecific }
     }
 
     fun getDeviceRoutines(context: Context): List<FocusRoutine> {
-        return getRoutines(context).filter { it.targetPackage.isNullOrBlank() }
+        return getRoutines(context).filter { !it.isAppSpecific }
     }
 
     fun getPackagesWithRoutines(context: Context): List<String> {
-        return getAppRoutines(context).mapNotNull { it.targetPackage }.distinct()
+        return getAppRoutines(context).flatMap { it.resolvedTargetPackages }.distinct()
     }
 
     private fun calculateRoutineRemainingSeconds(routine: FocusRoutine): Long {
