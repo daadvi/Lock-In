@@ -179,7 +179,7 @@ class LockInAccessibilityService : AccessibilityService() {
 
         // 2. Coalesce rapid content changed events for the SAME package to eliminate UI thread saturation and ANRs
         val isVideoApp = isVideoPlatform || AppVideoCategoryHelper.hasVideos(pkg)
-        val minInterval = if (isVideoApp) 500L else 600L
+        val minInterval = if (isVideoApp) 500L else 3000L
         if (eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             if (pkg == lastProcessedPackage && (now - lastContentChangeProcessedEpoch < minInterval)) {
                 return
