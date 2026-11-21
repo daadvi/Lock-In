@@ -588,7 +588,7 @@ class LockInAccessibilityService : AccessibilityService() {
         now: Long
     ): VideoPlaybackState {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
-            pkg == lastVideoStatePkg && (now - lastVideoStateEpoch < 600L) &&
+            pkg == lastVideoStatePkg && (now - lastVideoStateEpoch < 3000L) &&
             lastVideoStateResult != null) {
             return lastVideoStateResult ?: VideoPlaybackState()
         }
