@@ -123,21 +123,12 @@ object LimitTimerManager {
         }
 
         val currentState = _sessionState.value
-        val isCurrentlyPaused = currentState.appName?.contains("Pausado", ignoreCase = true) == true
 
-        // If already running for this exact package, video mode, and PiP state, and video is active and NOT paused, KEEP TICKING!
-        if (currentState.isRunning && !isCurrentlyPaused && currentState.packageName == packageName &&
+        // Pause functionality removed: timer runs continuously regardless of video pause state.
+        // If already running for this exact package, video mode, and PiP state, KEEP TICKING!
+        if (currentState.isRunning && currentState.packageName == packageName &&
             currentState.isShortVideo == isShortVideo &&
-            currentState.isPictureInPicture == isPictureInPicture && isVideoActive && !isPaused) {
-            return
-        }
-
-        // If already suspended (paused video OR feed with no video playing) for this exact
-        // package+mode+PiP, keep the state instead of re-emitting it on every event
-        if (currentState.isRunning && isCurrentlyPaused && currentState.packageName == packageName &&
-            currentState.isShortVideo == isShortVideo &&
-            currentState.isPictureInPicture == isPictureInPicture &&
-            (isPaused || !isVideoActive)) {
+            currentState.isPictureInPicture == isPictureInPicture && isVideoActive) {
             return
         }
 
@@ -285,65 +276,8 @@ object LimitTimerManager {
                 "Vídeo Longo"
             } else "Vídeo"
 
-            // Check if user is inside ANY video app with video paused
-            if (isVideoApp && isPaused) {
-                // Video is paused across ANY video app (Shorts, Reels, YouTube, Netflix, etc.)!
-                // Suspend countdown, keep floating island visible with PAUSADO
-                stopTickerOnly()
-                _sessionState.value = ActiveSessionState(
-                    isRunning = true,
-                    packageName = packageName,
-                    appName = "$baseName ($typeSuffix - Pausado)",
-                    isShortVideo = isShortVideo,
-                    isPictureInPicture = isPictureInPicture,
-                    websiteDomain = urlDomain,
-                    remainingSeconds = remainingSec,
-                    totalLimitSeconds = totalLimit,
-                    isBlocked = false,
-                    isAppGroup = matchedGroup != null,
-                    appGroupName = matchedGroup?.name
-                )
-                FloatingIslandService.showIsland(context)
-                return@launch
-            }
-
-            // User is inside a video-limited app but no video is playing (feed, app
-            // transition, stale window): suspend the countdown but KEEP THE ISLAND VISIBLE
-            // so it never vanishes inside a limited app. Time only counts once a video is
-            // actually detected (then the state switches from Pausado back to running).
-            if (matchedApp != null && !matchedApp.useAbsoluteTime && !isVideoActive) {
-                // Show the pool most likely to be consumed next
-                val suspendedRemaining = when {
-                    matchedApp.shortVideoLimitMinutes > 0 -> matchedApp.shortVideoRemainingSeconds
-                    matchedApp.longVideoLimitMinutes > 0 -> matchedApp.longVideoRemainingSeconds
-                    else -> remainingSec
-                }
-                val suspendedLimit = when {
-                    matchedApp.shortVideoLimitMinutes > 0 -> matchedApp.shortVideoLimitMinutes * 60L
-                    matchedApp.longVideoLimitMinutes > 0 -> matchedApp.longVideoLimitMinutes * 60L
-                    else -> totalLimit
-                }
-                if (suspendedRemaining > 0L) {
-                    stopTickerOnly()
-                    _sessionState.value = ActiveSessionState(
-                        isRunning = true,
-                        packageName = packageName,
-                        appName = "$baseName ($typeSuffix - Pausado)",
-                        isShortVideo = isShortVideo,
-                        isPictureInPicture = isPictureInPicture,
-                        websiteDomain = urlDomain,
-                        remainingSeconds = suspendedRemaining,
-                        totalLimitSeconds = suspendedLimit,
-                        isBlocked = false,
-                        isAppGroup = matchedGroup != null,
-                        appGroupName = matchedGroup?.name
-                    )
-                    FloatingIslandService.showIsland(context)
-                } else {
-                    stopTimer(context)
-                }
-                return@launch
-            }
+            // Timer continues running even when video is paused or no video is playing.
+            // Pause functionality removed per user request.
 
             val displayName = if (isShortVideo) {
                 if (packageName.contains("instagram")) "$baseName (Reels)" else "$baseName (Shorts)"

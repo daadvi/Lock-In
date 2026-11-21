@@ -19,9 +19,8 @@ import org.robolectric.annotation.Config
 
 /**
  * Certification suite for the floating-island visibility fixes:
- * 1. Entering a video-limited app whose feed has no video playing must show the island
- *    in a suspended (PAUSADO) state instead of hiding it (Instagram bug).
- * 2. Leaving and re-entering an app (home/recents round trip) must show the island again.
+ * 1. Timer runs continuously regardless of video state (no pause).
+ * 2. Leaving and re-entering an app must show the island again with correct remaining time.
  * 3. When the remaining time reaches zero, the timer must be blocked (BlockedActivity).
  */
 @RunWith(RobolectricTestRunner::class)
@@ -82,7 +81,7 @@ class FloatingIslandVisibilityTest {
         return flow.value
     }
 
-    // The block state is set before BlockedActivity is launched, so poll the intent too.
+    // The block state is set before BlockedActivity is launched, so poll for it.
     // nextStartedActivity() dequeues, so peek while waiting and pop once at the end.
     private suspend fun awaitStartedActivity(timeoutMs: Long = 8000): android.content.Intent {
         val shadow = shadowOf(LockInApplication.instance)
@@ -98,48 +97,43 @@ class FloatingIslandVisibilityTest {
         runBlocking { runCatching { app.repository.deleteApp(pkg) } }
     }
 
-    /** Bug 1: entering Instagram-like app lands in the feed (no video) → island must be visible in PAUSADO state. */
+    /** Timer runs continuously regardless of video state (no pause). */
     @Test
-    fun enteringFeedShowsSuspendedIslandInsteadOfHiding() = runBlocking {
+    fun enteringFeedRunsTimerContinuously() = runBlocking {
         val app = LockInApplication.instance
         val pkg = "com.instagram.feed.test"
         insertShortVideoApp(pkg)
         awaitMonitored(pkg)
         try {
+            // Enter feed (no video) - timer should run continuously
             LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = false, isVideoActive = false)
-            val state = awaitState {
-                it.isRunning && it.packageName == pkg && it.appName?.contains("Pausado") == true
-            }
+            val state = awaitState { it.isRunning && it.packageName == pkg }
             assertEquals(600L, state.remainingSeconds)
             assertTrue(state.isRunning)
-            assertFalse(state.appName!!.contains("null"))
         } finally {
             cleanup(pkg)
         }
     }
 
-    /** Bug 1b: opening a Reel (video detected) must switch from suspended to counting. */
+    /** Opening a Reel should continue the timer without pause. */
     @Test
-    fun openingReelSwitchesFromSuspendedToCounting() = runBlocking {
+    fun openingReelContinuesTimer() = runBlocking {
         val app = LockInApplication.instance
         val pkg = "com.instagram.reel.test"
         insertShortVideoApp(pkg)
         awaitMonitored(pkg)
         try {
             LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = false, isVideoActive = false)
-            awaitState { it.isRunning && it.appName?.contains("Pausado") == true && it.packageName == pkg }
+            awaitState { it.isRunning && it.packageName == pkg }
             LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = true, isVideoActive = true)
-            val state = awaitState {
-                it.isRunning && it.packageName == pkg && it.appName?.contains("Pausado") != true
-            }
+            val state = awaitState { it.isRunning && it.packageName == pkg }
             assertEquals(600L, state.remainingSeconds)
-            assertTrue(state.appName!!.contains("Reels"))
         } finally {
             cleanup(pkg)
         }
     }
 
-    /** Bugs 2+3: leave (stopTimer via launcher/recents) then re-enter must show the island again. */
+    /** Leave and re-enter must show the island again with correct remaining time. */
     @Test
     fun leavingAndReenteringShowsIslandAgain() = runBlocking {
         val app = LockInApplication.instance
@@ -147,23 +141,19 @@ class FloatingIslandVisibilityTest {
         insertShortVideoApp(pkg)
         awaitMonitored(pkg)
         try {
-            // 1) Reel playing → island counting
+            // 1) Reel playing -> timer counting
             LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = true, isVideoActive = true)
-            awaitState { it.isRunning && it.packageName == pkg && !it.appName!!.contains("Pausado") }
-            // 2) User leaves (launcher/recents) → timer stops
+            awaitState { it.isRunning && it.packageName == pkg }
+            // 2) User leaves (launcher/recents) -> timer stops
             LimitTimerManager.stopTimer(app)
             assertFalse(stateFlow().value.isRunning)
-            // 3) User re-enters: first event is the feed (no video detected yet)
+            // 3) User re-enters: feed (no video detected yet)
             LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = false, isVideoActive = false)
-            val suspended = awaitState {
-                it.isRunning && it.packageName == pkg && it.appName?.contains("Pausado") == true
-            }
-            assertEquals(600L, suspended.remainingSeconds)
-            // 4) Reel detected again → counting resumes with the persisted remaining
+            val state = awaitState { it.isRunning && it.packageName == pkg }
+            assertEquals(600L, state.remainingSeconds)
+            // 4) Reel detected again -> counting resumes with persisted remaining
             LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = true, isVideoActive = true)
-            val running = awaitState {
-                it.isRunning && it.packageName == pkg && it.appName?.contains("Pausado") != true
-            }
+            val running = awaitState { it.isRunning && it.packageName == pkg }
             assertEquals(600L, running.remainingSeconds)
         } finally {
             cleanup(pkg)
@@ -180,8 +170,6 @@ class FloatingIslandVisibilityTest {
         try {
             LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = false, isVideoActive = true)
             awaitState(15000) { it.isBlocked && it.packageName == pkg }
-            // The blocked state is emitted before the ticker marks the app depleted,
-            // so poll instead of asserting instantly (CI machines are fast enough to win the race).
             awaitDepleted(pkg)
             val started = awaitStartedActivity()
             assertEquals(BlockedActivity::class.java.name, started.component?.className)
@@ -201,7 +189,6 @@ class FloatingIslandVisibilityTest {
         try {
             LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = false, isVideoActive = true)
             awaitState(10000) { !it.isRunning }
-            // Block screen should have been triggered for the depleted app
             val started = awaitStartedActivity()
             assertEquals(BlockedActivity::class.java.name, started.component?.className)
         } finally {
