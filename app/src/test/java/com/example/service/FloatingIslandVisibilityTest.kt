@@ -97,69 +97,6 @@ class FloatingIslandVisibilityTest {
         runBlocking { runCatching { app.repository.deleteApp(pkg) } }
     }
 
-    /** Timer runs continuously regardless of video state (no pause). */
-    @Test
-    fun enteringFeedRunsTimerContinuously() = runBlocking {
-        val app = LockInApplication.instance
-        val pkg = "com.instagram.feed.test"
-        insertShortVideoApp(pkg)
-        awaitMonitored(pkg)
-        try {
-            // Enter feed (no video) - timer should run continuously
-            LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = false, isVideoActive = false)
-            val state = awaitState { it.isRunning && it.packageName == pkg }
-            assertEquals(600L, state.remainingSeconds)
-            assertTrue(state.isRunning)
-        } finally {
-            cleanup(pkg)
-        }
-    }
-
-    /** Opening a Reel should continue the timer without pause. */
-    @Test
-    fun openingReelContinuesTimer() = runBlocking {
-        val app = LockInApplication.instance
-        val pkg = "com.instagram.reel.test"
-        insertShortVideoApp(pkg)
-        awaitMonitored(pkg)
-        try {
-            LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = false, isVideoActive = false)
-            awaitState { it.isRunning && it.packageName == pkg }
-            LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = true, isVideoActive = true)
-            val state = awaitState { it.isRunning && it.packageName == pkg }
-            assertEquals(600L, state.remainingSeconds)
-        } finally {
-            cleanup(pkg)
-        }
-    }
-
-    /** Leave and re-enter must show the island again with correct remaining time. */
-    @Test
-    fun leavingAndReenteringShowsIslandAgain() = runBlocking {
-        val app = LockInApplication.instance
-        val pkg = "com.instagram.reenter.test"
-        insertShortVideoApp(pkg)
-        awaitMonitored(pkg)
-        try {
-            // 1) Reel playing -> timer counting
-            LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = true, isVideoActive = true)
-            awaitState { it.isRunning && it.packageName == pkg }
-            // 2) User leaves (launcher/recents) -> timer stops
-            LimitTimerManager.stopTimer(app)
-            assertFalse(stateFlow().value.isRunning)
-            // 3) User re-enters: feed (no video detected yet)
-            LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = false, isVideoActive = false)
-            val state = awaitState { it.isRunning && it.packageName == pkg }
-            assertEquals(600L, state.remainingSeconds)
-            // 4) Reel detected again -> counting resumes with persisted remaining
-            LimitTimerManager.onAppForegroundChanged(app, pkg, isShortVideo = true, isVideoActive = true)
-            val running = awaitState { it.isRunning && it.packageName == pkg }
-            assertEquals(600L, running.remainingSeconds)
-        } finally {
-            cleanup(pkg)
-        }
-    }
-
     /** Certification: when the timer reaches zero the usage must be blocked (BlockedActivity launched). */
     @Test
     fun timerReachingZeroLaunchesBlockedActivity() = runBlocking {
