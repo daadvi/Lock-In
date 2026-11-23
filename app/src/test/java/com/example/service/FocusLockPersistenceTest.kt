@@ -194,6 +194,10 @@ class FocusLockPersistenceTest {
         }
         service.onAccessibilityEvent(event)
         event.recycle()
+        // O bounce é adiado (a lista de apps liberados pode abrir a partir do launcher);
+        // a tela só volta quando o foreground continua no launcher após o atraso.
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+            .idleFor(700, java.util.concurrent.TimeUnit.MILLISECONDS)
         assertTrue(lockLaunches().isNotEmpty())
     }
 

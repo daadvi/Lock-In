@@ -64,6 +64,7 @@ class LockInAccessibilityService : AccessibilityService() {
     private var lastVideoStatePkg: String? = null
     private var lastVideoStateResult: VideoPlaybackState? = null
     private var lastVideoStateEpoch: Long = 0L
+    private var lastForegroundEventPkg: String? = null
     private var lastWebsiteBlockEpoch: Long = 0L
 
     private val browserPackages = listOf(
@@ -138,6 +139,7 @@ class LockInAccessibilityService : AccessibilityService() {
             try { root?.packageName?.toString() } finally { root?.recycle() }
         } else null
         if (pkg.isNullOrBlank() || pkg == packageName) return
+        lastForegroundEventPkg = pkg
 
         // CRITICAL BANKING & FINANCIAL SECURITY ISOLATION:
         // Banking apps (Caixa, Nubank, Itaú, Bradesco, Santander, Inter, etc.) scan for active
@@ -237,9 +239,18 @@ class LockInAccessibilityService : AccessibilityService() {
         if (isLauncher) {
             LimitTimerManager.stopTimer(applicationContext)
             isUninstallingOtherApp = false
-            // A focus session outranks the home screen: sitting on the launcher is not an escape.
+            // A focus session outranks the home screen, but the user may be opening an allowed
+            // app from the launcher/dock: give that app's launch event a moment to win before
+            // pulling the lock screen back (otherwise allowed apps bounce straight back here).
             if (FocusTimeManager.isFocusTimeActive(applicationContext)) {
-                FocusTimeManager.bringFocusLockToFront(applicationContext)
+                mainHandler.postDelayed({
+                    if (!FocusTimeManager.isFocusTimeActive(applicationContext)) return@postDelayed
+                    val current = lastForegroundEventPkg ?: return@postDelayed
+                    val stillOnLauncher = (current.contains("launcher") || current.contains("home") ||
+                            current.contains("trebuchet") || current.contains("nexuslauncher") || current.contains("pixel")) &&
+                            !current.contains("packageinstaller")
+                    if (stillOnLauncher) FocusTimeManager.bringFocusLockToFront(applicationContext)
+                }, 600L)
             }
             return
         }
