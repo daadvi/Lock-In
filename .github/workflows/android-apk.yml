@@ -49,19 +49,28 @@ jobs:
           # Segurança extra para o Gradle achar o SDK.
           echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-      # O repositório não armazena uma chave privada. Esta chave de desenvolvimento
-      # torna o APK instalável para testes, mas é recriada em cada execução.
-      - name: Criar chave de desenvolvimento temporária
+      # CHAVE FIXA: a assinatura do APK precisa ser idêntica entre versões,
+      # senão o Android recusa atualizar (INSTALL_FAILED_UPDATE_INCOMPATIBLE)
+      # e o usuário perde todos os dados ao desinstalar. O secret
+      # DEBUG_KEYSTORE_BASE64 guarda a chave de desenvolvimento fixa.
+      # Sem o secret (ex.: PR de fork) cai no fallback aleatório.
+      - name: Restaurar chave de assinatura fixa
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
-          keytool -genkeypair -noprompt \
-            -keystore debug.keystore \
-            -storepass android \
-            -keypass android \
-            -alias androiddebugkey \
-            -dname "CN=Android Debug,O=Android,C=US" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > debug.keystore
+          else
+            keytool -genkeypair -noprompt \
+              -keystore debug.keystore \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000
+          fi
 
       - name: Preparar Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4

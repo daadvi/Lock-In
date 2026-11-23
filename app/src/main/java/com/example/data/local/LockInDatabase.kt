@@ -24,7 +24,7 @@ abstract class LockInDatabase : RoomDatabase() {
                     context.applicationContext,
                     LockInDatabase::class.java,
                     "lock_in_database"
-                ).fallbackToDestructiveMigration().build()
+                ).fallbackToDestructiveMigrationFrom(1).build()
                 INSTANCE = instance
                 instance
             }
