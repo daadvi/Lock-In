@@ -123,7 +123,9 @@ object EmergencyUnlockManager {
         // 1. Streak / sequência perdida e resetada para 0!
         StreakManager.markViolation(context)
 
-        // 2. Stop focus lock session
+        // 2. Stop focus lock session and suppress the routine that was locking the device
+        //    (otherwise the schedule-derived routine lock comes back immediately).
+        FocusTimeManager.suppressActiveRoutineAfterUnlock(context)
         FocusTimeManager.stopFocusSession(context)
 
         // 3. Reset screen time lockout if active

@@ -42,6 +42,8 @@ object FocusTimeManager {
     private const val KEY_SESSION_START_EPOCH = "focus_start_epoch"
     private const val KEY_SESSION_LAST_TICK_EPOCH = "focus_last_tick_epoch"
     private const val KEY_SESSION_ACCUMULATED_MS = "focus_accumulated_ms"
+    private const val KEY_UNLOCK_OVERRIDE_ROUTINE_ID = "focus_unlock_override_routine_id"
+    private const val KEY_UNLOCK_OVERRIDE_UNTIL_EPOCH = "focus_unlock_override_until_epoch"
 
     /**
      * Wall-clock forward jumps above this bound are treated as clock tampering and
@@ -248,6 +250,23 @@ object FocusTimeManager {
         _isFocusActiveFlow.value = false
         _remainingSecondsFlow.value = 0L
         com.example.widget.LockInWidgetManager.updateAllWidgets(context)
+    }
+
+    /**
+     * Emergency unlock completed: keep the routine that is locking the device right now
+     * suppressed until its current occurrence ends, so the device is truly unlocked.
+     */
+    fun suppressActiveRoutineAfterUnlock(context: Context) {
+        val routine = findActiveRoutine(context) ?: return
+        val remainingSeconds = calculateRoutineRemainingSeconds(routine).coerceAtLeast(60L)
+        getPrefs(context).edit()
+            .putString(KEY_UNLOCK_OVERRIDE_ROUTINE_ID, routine.id)
+            .putLong(
+                KEY_UNLOCK_OVERRIDE_UNTIL_EPOCH,
+                System.currentTimeMillis() + remainingSeconds * 1000L
+            )
+            .apply()
+        checkStatus(context)
     }
 
     /**
@@ -649,7 +668,14 @@ object FocusTimeManager {
 
     private fun findActiveRoutine(context: Context): FocusRoutine? {
         // Only device-wide routines (no target app) trigger full phone focus lockdown
-        val routines = getRoutines(context).filter { it.isEnabled && !it.isAppSpecific }
+        val prefs = getPrefs(context)
+        val overrideId = prefs.getString(KEY_UNLOCK_OVERRIDE_ROUTINE_ID, null)
+        val overrideUntil = prefs.getLong(KEY_UNLOCK_OVERRIDE_UNTIL_EPOCH, 0L)
+        val overrideActive = overrideId != null && System.currentTimeMillis() < overrideUntil
+        // An emergency unlock suppresses the routine that was locking the device until its
+        // current occurrence ends, so the user can actually use the phone freely.
+        val routines = getRoutines(context)
+            .filter { it.isEnabled && !it.isAppSpecific && !(overrideActive && it.id == overrideId) }
         val now = Calendar.getInstance()
         val currentDay = when (now.get(Calendar.DAY_OF_WEEK)) {
             Calendar.MONDAY -> 1
