@@ -200,15 +200,11 @@ class LockInAccessibilityService : AccessibilityService() {
         // Never block or trigger installation blocked screen when uninstalling an app!
         val isPackageInstaller = pkg.contains("packageinstaller") || pkg.contains("installer")
         if (isPackageInstaller) {
-            val root = rootInActiveWindow ?: event.source
-            val texts = mutableListOf<String>()
-            try {
-                if (root != null) {
-                    collectWindowTexts(root, texts, depth = 0)
-                }
-            } finally {
-                try { root?.recycle() } catch (_: Exception) {}
-            }
+            // B3: use the event payload the framework already collected instead of walking the
+            // window tree on the accessibility callback. The deeper scan still runs later in
+            // the deferred pendingUninstallCheck (250ms) where the cost is off the hot path.
+            val texts = event.text.map { it?.toString() ?: "" } +
+                listOfNotNull(event.contentDescription?.toString())
 
             val className = event.className?.toString() ?: ""
             val isUninstallerClass = className.contains("Uninstall", ignoreCase = true) || className.contains("Delete", ignoreCase = true)
@@ -566,6 +562,12 @@ class LockInAccessibilityService : AccessibilityService() {
 
         val rawBrowserUrl = detectBrowserRawUrl(pkg, now)
         val browserUrlDomain = rawBrowserUrl?.replace("https://", "")?.replace("http://", "")?.split("/")?.firstOrNull()
+
+        // A1: native video apps already get an expensive tree walk in the coalesced
+        // pendingVideoStateRunnable (450ms) posted earlier in this event. Skip the duplicate
+        // synchronous scan here; browsers still go through the URL-based path below.
+        if (isVideoApp && browserUrlDomain == null) return
+
         val videoState = detectVideoPlaybackState(event, pkg, rawBrowserUrl, now)
 
         LimitTimerManager.onAppForegroundChanged(
