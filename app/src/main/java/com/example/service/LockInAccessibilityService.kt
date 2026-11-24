@@ -665,11 +665,11 @@ class LockInAccessibilityService : AccessibilityService() {
                     detectInstagramVideoState(event, root, now)
                 }
                 isFacebook -> {
-                    val isReels = containsViewIdKeyword(root, listOf("reel", "short_form_video", "fb_reels"), maxDepth = 4)
+                    val isReels = containsViewIdKeyword(root, listOf("reel", "short_form_video", "fb_reels"), maxDepth = 3)
                     VideoPlaybackState(isShortVideo = isReels, isVideoActive = isReels)
                 }
                 isSnapchat -> {
-                    val isSpotlight = containsViewIdKeyword(root, listOf("spotlight", "discover_feed"), maxDepth = 4)
+                    val isSpotlight = containsViewIdKeyword(root, listOf("spotlight", "discover_feed"), maxDepth = 3)
                     VideoPlaybackState(isShortVideo = isSpotlight, isVideoActive = isSpotlight)
                 }
                 else -> VideoPlaybackState(isShortVideo = false, isVideoActive = true)
@@ -720,7 +720,7 @@ class LockInAccessibilityService : AccessibilityService() {
         if (node == null) return
         val closeKeywords = listOf("close", "fechar", "descartar", "dismiss", "remover")
         fun searchAndClick(n: AccessibilityNodeInfo, depth: Int): Boolean {
-            if (depth > 6) return false
+            if (depth > 3) return false
             val desc = n.contentDescription?.toString()?.lowercase() ?: ""
             val text = n.text?.toString()?.lowercase() ?: ""
             val id = n.viewIdResourceName?.lowercase() ?: ""
@@ -759,7 +759,7 @@ class LockInAccessibilityService : AccessibilityService() {
         }
         val texts = mutableListOf<String>()
         fun collect(n: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 7 || texts.size >= 60) return
+            if (depth > 3 || texts.size >= 30) return
             n.text?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let { texts.add(it) }
             n.contentDescription?.toString()?.trim()?.takeIf { it.isNotBlank() }?.let { texts.add(it) }
             for (i in 0 until n.childCount) {
@@ -837,7 +837,7 @@ class LockInAccessibilityService : AccessibilityService() {
         var visitedNodes = 0
 
         fun scanYouTube(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 5 || visitedNodes >= 35) return
+            if (depth > 3 || visitedNodes >= 20) return
             visitedNodes++
 
             val viewId = node.viewIdResourceName?.lowercase() ?: ""
@@ -913,7 +913,7 @@ class LockInAccessibilityService : AccessibilityService() {
 
         var isReels = false
         fun inspectNode(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 6 || isReels) return
+            if (depth > 3 || isReels) return
 
             val desc = node.contentDescription?.toString() ?: ""
             if (desc.contains("Reels", ignoreCase = true) && (node.isSelected || node.isChecked)) {
@@ -956,7 +956,7 @@ class LockInAccessibilityService : AccessibilityService() {
         val isReels = isInstagramReelsFast(event, root)
         val isPaused = isInstagramVideoPaused(root) || isUniversalVideoPaused(root)
         if (!isReels) {
-            val hasVideoContainer = containsViewIdKeyword(root, listOf("feed_video", "video_container", "story_viewer", "clips_surface"), maxDepth = 4)
+            val hasVideoContainer = containsViewIdKeyword(root, listOf("feed_video", "video_container", "story_viewer", "clips_surface"), maxDepth = 3)
             if (hasVideoContainer) {
                 return VideoPlaybackState(isShortVideo = false, isVideoActive = true, isPaused = isPaused)
             }
@@ -977,7 +977,7 @@ class LockInAccessibilityService : AccessibilityService() {
 
         var isPaused = false
         fun checkNode(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 6 || isPaused) return
+            if (depth > 3 || isPaused) return
             val cd = node.contentDescription?.toString()?.trim()?.lowercase() ?: ""
             val text = node.text?.toString()?.trim()?.lowercase() ?: ""
             val viewId = node.viewIdResourceName?.lowercase() ?: ""
@@ -1019,7 +1019,7 @@ class LockInAccessibilityService : AccessibilityService() {
         val pauseIdKeywords = listOf("pause_button", "video_pause_button", "clips_pause_button", "button_pause", "exo_pause", "btn_pause", "player_pause", "playback_pause")
 
         fun check(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > 8 || hasActivePauseButton) return
+            if (depth > 4 || hasActivePauseButton) return
             val cd = node.contentDescription?.toString()?.trim()?.lowercase() ?: ""
             val text = node.text?.toString()?.trim()?.lowercase() ?: ""
             val viewId = node.viewIdResourceName?.lowercase() ?: ""
@@ -1112,7 +1112,7 @@ class LockInAccessibilityService : AccessibilityService() {
     }
 
     private fun findUrlTextInNode(node: AccessibilityNodeInfo, depth: Int = 0): String? {
-        if (depth > 5) return null
+        if (depth > 4) return null
         val viewId = node.viewIdResourceName?.lowercase() ?: ""
         if (viewId.contains("url_bar") || viewId.contains("location_bar") || viewId.contains("search_box")) {
             val text = node.text?.toString()
@@ -1502,7 +1502,7 @@ class LockInAccessibilityService : AccessibilityService() {
     }
 
     private fun collectWindowTexts(node: AccessibilityNodeInfo, texts: MutableList<String>, depth: Int) {
-        if (depth > 5 || texts.size >= 30) return
+        if (depth > 4 || texts.size >= 20) return
         val t = node.text?.toString()?.trim()
         if (!t.isNullOrEmpty()) texts.add(t.lowercase())
         val cd = node.contentDescription?.toString()?.trim()
