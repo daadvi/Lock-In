@@ -111,6 +111,45 @@ object FocusTimeManager {
     /**
      * Checks if a direct focus session or a routine is active right now.
      */
+    /** Immutable policy view consumed by the accessibility hot path. */
+    data class PolicySnapshot(
+        val active: Boolean,
+        val remainingSeconds: Long,
+        val allowedPackages: List<String>
+    )
+
+    private const val POLICY_SNAPSHOT_TTL_MS = 500L
+
+    @Volatile
+    private var policySnapshotEpoch = 0L
+
+    @Volatile
+    private var policySnapshotValue = PolicySnapshot(false, 0L, emptyList())
+
+    /**
+     * Memory-first view of the focus policy. `checkStatus` keeps its exact semantics (tests and
+     * boot-time recovery depend on fresh reads); callers on the accessibility event loop use this
+     * snapshot so a single event never rereads SharedPreferences/Calendar several times.
+     */
+    fun policySnapshot(context: Context): PolicySnapshot {
+        val now = System.currentTimeMillis()
+        if (now - policySnapshotEpoch < POLICY_SNAPSHOT_TTL_MS) return policySnapshotValue
+
+        val active = checkStatus(context)
+        val snapshot = PolicySnapshot(
+            active = active,
+            remainingSeconds = getRemainingSeconds(context),
+            allowedPackages = if (active) getAllowedPackages(context) else emptyList()
+        )
+        policySnapshotValue = snapshot
+        policySnapshotEpoch = System.currentTimeMillis()
+        return snapshot
+    }
+
+    fun invalidatePolicySnapshot() {
+        policySnapshotEpoch = 0L
+    }
+
     fun checkStatus(context: Context): Boolean {
         val prefs = getPrefs(context)
         val endEpoch = prefs.getLong(KEY_END_EPOCH, 0L)
@@ -199,6 +238,7 @@ object FocusTimeManager {
         allowedPackages: List<String>,
         routineName: String? = null
     ) {
+        invalidatePolicySnapshot()
         val safeDuration = durationMinutes.coerceAtLeast(1)
         val endEpoch = System.currentTimeMillis() + (safeDuration * 60L * 1000L)
         val safeAllowed = if (allowedPackages.isNotEmpty()) {
@@ -238,6 +278,7 @@ object FocusTimeManager {
     }
 
     fun stopFocusSession(context: Context) {
+        invalidatePolicySnapshot()
         val prefs = getPrefs(context)
         prefs.edit()
             .putBoolean(KEY_IS_ACTIVE, false)
@@ -258,6 +299,7 @@ object FocusTimeManager {
      */
     fun suppressActiveRoutineAfterUnlock(context: Context) {
         val routine = findActiveRoutine(context) ?: return
+        invalidatePolicySnapshot()
         val remainingSeconds = calculateRoutineRemainingSeconds(routine).coerceAtLeast(60L)
         getPrefs(context).edit()
             .putString(KEY_UNLOCK_OVERRIDE_ROUTINE_ID, routine.id)
@@ -579,6 +621,7 @@ object FocusTimeManager {
             array.put(obj)
         }
         cachedRoutinesList = routines
+        invalidatePolicySnapshot()
         getPrefs(context).edit().putString(KEY_ROUTINES_JSON, array.toString()).apply()
         scheduleRoutineAlarms(context)
         try {

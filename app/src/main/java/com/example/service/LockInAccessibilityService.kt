@@ -243,9 +243,9 @@ class LockInAccessibilityService : AccessibilityService() {
             // A focus session outranks the home screen, but the user may be opening an allowed
             // app from the launcher/dock: give that app's launch event a moment to win before
             // pulling the lock screen back (otherwise allowed apps bounce straight back here).
-            if (FocusTimeManager.isFocusTimeActive(applicationContext)) {
+            if (FocusTimeManager.policySnapshot(applicationContext).active) {
                 mainHandler.postDelayed({
-                    if (!FocusTimeManager.isFocusTimeActive(applicationContext)) return@postDelayed
+                    if (!FocusTimeManager.policySnapshot(applicationContext).active) return@postDelayed
                     val current = lastForegroundEventPkg ?: return@postDelayed
                     val stillOnLauncher = (current.contains("launcher") || current.contains("home") ||
                             current.contains("trebuchet") || current.contains("nexuslauncher") || current.contains("pixel")) &&
@@ -267,9 +267,10 @@ class LockInAccessibilityService : AccessibilityService() {
                 PhoneAppHelper.isPhoneDialerApp(applicationContext, pkg)
 
         // 1. Check if FOCUS TIME is active (Device Total Lockdown)
-        if (FocusTimeManager.isFocusTimeActive(applicationContext) && !isSystemHelperPackage) {
-            val isAllowed = FocusTimeManager.isPackageAllowed(applicationContext, pkg)
-            if (!isAllowed) {
+        if (!isSystemHelperPackage) {
+            // Single memory read for the whole event: policy prefs are not touched per event.
+            val focusPolicy = FocusTimeManager.policySnapshot(applicationContext)
+            if (focusPolicy.active && pkg !in focusPolicy.allowedPackages) {
                 FocusTimeManager.bringFocusLockToFront(applicationContext)
                 return
             }
