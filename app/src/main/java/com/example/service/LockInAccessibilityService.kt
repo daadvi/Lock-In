@@ -65,6 +65,7 @@ class LockInAccessibilityService : AccessibilityService() {
     private var lastVideoStateResult: VideoPlaybackState? = null
     private var lastVideoStateEpoch: Long = 0L
     private var lastForegroundEventPkg: String? = null
+    private val lockInNamePattern = Regex("""\b(lock[\s\-_]*in|lockin)\b""", RegexOption.IGNORE_CASE)
     private var lastWebsiteBlockEpoch: Long = 0L
 
     private val browserPackages = listOf(
@@ -1109,7 +1110,7 @@ class LockInAccessibilityService : AccessibilityService() {
     private fun detectBrowserRawUrl(pkg: String, now: Long): String? {
         if (!browserPackages.contains(pkg)) return null
 
-        if (now - lastBrowserCheckEpoch < 1000L && lastBrowserPackage == pkg) {
+        if (now - lastBrowserCheckEpoch < 3000L && lastBrowserPackage == pkg) {
             return cachedBrowserUrl
         }
 
@@ -1165,7 +1166,7 @@ class LockInAccessibilityService : AccessibilityService() {
         var matchedBlacklistApp: String? = null
 
         try {
-            while (!queue.isEmpty() && visitedCount < 60) {
+            while (!queue.isEmpty() && visitedCount < 40) {
                 val node = queue.poll() ?: continue
                 try {
                     visitedCount++
@@ -1375,7 +1376,7 @@ class LockInAccessibilityService : AccessibilityService() {
                     t == appLabel || t == "lock in" || t == "lockin" || t == myPkgLower ||
                             t == "deseja desinstalar o app lock in?" || t == "deseja desinstalar lock in?" ||
                             t == "uninstall lock in?" || t == "desinstalar lock in" ||
-                            (Regex("""\b(lock[\s\-_]*in|lockin)\b""", RegexOption.IGNORE_CASE).containsMatchIn(t) &&
+                            (lockInNamePattern.containsMatchIn(t) &&
                                     !t.contains("serviço") && !t.contains("acessibilidade") && !t.contains("service"))
                 }
 
