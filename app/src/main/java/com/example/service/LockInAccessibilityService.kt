@@ -634,13 +634,8 @@ class LockInAccessibilityService : AccessibilityService() {
 
         // TikTok / Kwai are inherently short video platforms
         if (pkg.contains("zhiliaoapp") || pkg.contains("tiktok") || pkg.contains("trill") || pkg.contains("kwai") || pkg.contains("kuaishou")) {
-            val root = rootInActiveWindow
-            val universalPaused = try {
-                if (root != null) isUniversalVideoPaused(root) else false
-            } finally {
-                try { root?.recycle() } catch (_: Exception) {}
-            }
-            val res = VideoPlaybackState(isShortVideo = true, isVideoActive = true, isPaused = universalPaused)
+            // Pause detection removed: the flag has no consumer and it forced a full tree walk.
+            val res = VideoPlaybackState(isShortVideo = true, isVideoActive = true)
             lastVideoStatePkg = pkg
             lastVideoStateResult = res
             lastVideoStateEpoch = now
@@ -654,14 +649,8 @@ class LockInAccessibilityService : AccessibilityService() {
 
         if (!isYouTube && !isInstagram && !isFacebook && !isSnapchat) {
             // Check if app has long videos only (Netflix, Twitch, Disney+, VLC)
-            val root = rootInActiveWindow
-            val universalPaused = try {
-                if (root != null) isUniversalVideoPaused(root) else false
-            } finally {
-                try { root?.recycle() } catch (_: Exception) {}
-            }
             val hasLongOnly = AppVideoCategoryHelper.hasLongVideosOnly(pkg)
-            val res = VideoPlaybackState(isShortVideo = false, isVideoActive = hasLongOnly || !AppVideoCategoryHelper.hasVideos(pkg), isPaused = universalPaused)
+            val res = VideoPlaybackState(isShortVideo = false, isVideoActive = hasLongOnly || !AppVideoCategoryHelper.hasVideos(pkg))
             lastVideoStatePkg = pkg
             lastVideoStateResult = res
             lastVideoStateEpoch = now
@@ -670,24 +659,20 @@ class LockInAccessibilityService : AccessibilityService() {
 
         val root = rootInActiveWindow ?: return VideoPlaybackState(isShortVideo = false, isVideoActive = false)
         val computed = try {
-            val universalPaused = isUniversalVideoPaused(root)
             when {
-                isYouTube -> {
-                    val state = detectYouTubeVideoState(event, root)
-                    state.copy(isPaused = universalPaused || state.isPaused)
-                }
+                isYouTube -> detectYouTubeVideoState(event, root)
                 isInstagram -> {
                     detectInstagramVideoState(event, root, now)
                 }
                 isFacebook -> {
                     val isReels = containsViewIdKeyword(root, listOf("reel", "short_form_video", "fb_reels"), maxDepth = 4)
-                    VideoPlaybackState(isShortVideo = isReels, isVideoActive = isReels, isPaused = universalPaused)
+                    VideoPlaybackState(isShortVideo = isReels, isVideoActive = isReels)
                 }
                 isSnapchat -> {
                     val isSpotlight = containsViewIdKeyword(root, listOf("spotlight", "discover_feed"), maxDepth = 4)
-                    VideoPlaybackState(isShortVideo = isSpotlight, isVideoActive = isSpotlight, isPaused = universalPaused)
+                    VideoPlaybackState(isShortVideo = isSpotlight, isVideoActive = isSpotlight)
                 }
-                else -> VideoPlaybackState(isShortVideo = false, isVideoActive = true, isPaused = universalPaused)
+                else -> VideoPlaybackState(isShortVideo = false, isVideoActive = true)
             }
         } finally {
             try { root.recycle() } catch (_: Exception) {}
