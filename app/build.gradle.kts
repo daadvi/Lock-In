@@ -14,8 +14,8 @@ android {
     applicationId = "com.aistudio.lockin.pzkvtr"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1300
-    versionName = "1.3.0"
+    versionCode = 1600
+    versionName = "1.6.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
