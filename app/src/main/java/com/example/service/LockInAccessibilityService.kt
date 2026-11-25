@@ -65,6 +65,7 @@ class LockInAccessibilityService : AccessibilityService() {
     private var lastVideoStateResult: VideoPlaybackState? = null
     private var lastVideoStateEpoch: Long = 0L
     private var lastForegroundEventPkg: String? = null
+    private var lastSplitScanEpoch: Long = 0L
     private val lockInNamePattern = Regex("""\b(lock[\s\-_]*in|lockin)\b""", RegexOption.IGNORE_CASE)
     private var lastWebsiteBlockEpoch: Long = 0L
 
@@ -344,6 +345,41 @@ class LockInAccessibilityService : AccessibilityService() {
             } else {
                 pipPackage = cachedPipPackage
             }
+        }
+
+        // 2.1b SPLIT-SCREEN: a blocked app kept visible next to an allowed one must not survive.
+        if (pipPackage == null && now - lastSplitScanEpoch > 3000L) {
+            lastSplitScanEpoch = now
+            try {
+                val windowNodes = windows.orEmpty()
+                if (windowNodes.size > 1) {
+                    val windowPkgs = mutableListOf<String>()
+                    for (w in windowNodes) {
+                        var root: AccessibilityNodeInfo? = null
+                        try {
+                            root = w.root
+                            val wp = root?.packageName?.toString()
+                            if (!wp.isNullOrBlank() && wp != applicationContext.packageName) windowPkgs.add(wp)
+                        } catch (_: Exception) {
+                        } finally {
+                            try { root?.recycle() } catch (_: Exception) {}
+                        }
+                    }
+                    val blockedInSplit = windowPkgs.distinct().firstOrNull { wPkg ->
+                        wPkg != pkg && (AppBlockEnforcer.isAppDepleted(wPkg) ||
+                                PlayStoreBlacklistManager.isAppOrPackageBlacklisted(applicationContext, wPkg) != null)
+                    }
+                    if (blockedInSplit != null) {
+                        Log.w("LockInAccessibility", "Blocked app visible in multi-window: $blockedInSplit")
+                        if (FocusTimeManager.policySnapshot(applicationContext).active) {
+                            FocusTimeManager.bringFocusLockToFront(applicationContext)
+                        } else {
+                            ScreenTimeManager.bringLockoutToFront(applicationContext)
+                        }
+                        return
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
         if (pipPackage != null) {
