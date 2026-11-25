@@ -58,6 +58,7 @@ class LockInApplication : Application() {
         com.example.service.CloudSyncManager.initialize(this)
         com.example.service.FriendsPartyManager.init(this)
         com.example.service.AnrWatchdog.ensureStarted(this)
+        com.example.service.IntegrityGuard.ensureStarted(this)
         com.example.service.DailyResetManager.checkResetIfDue(this)
         com.example.service.DailyResetManager.scheduleMidnightAlarm(this)
         applicationScope.launch {
