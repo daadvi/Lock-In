@@ -29,6 +29,16 @@ object IntegrityGuard {
     internal fun shouldReopen(nowMs: Long, lastReopenMs: Long, cooldownMs: Long = REOPEN_COOLDOWN_MS): Boolean =
         nowMs - lastReopenMs >= cooldownMs
 
+    /**
+     * Private DNS no modo "hostname" manda as consultas para um resolvedor externo, contornando
+     * o sinkhole local do Lock In. Modos automaticos/off nao indicam contorno.
+     */
+    internal fun isDnsBypass(privateDnsMode: String?, privateDnsSpecifier: String?): Boolean {
+        if (!privateDnsMode.equals("hostname", ignoreCase = true)) return false
+        val host = privateDnsSpecifier?.trim().orEmpty()
+        return host.isNotEmpty() && !host.equals("off", ignoreCase = true)
+    }
+
     fun ensureStarted(context: Context) {
         if (started) return
         started = true
@@ -58,13 +68,31 @@ object IntegrityGuard {
 
         val accessibilityOn = isAccessibilityServiceEnabled(context)
         val overlayOn = Settings.canDrawOverlays(context)
-        if (!isDegraded(true, accessibilityOn, overlayOn)) return
+
+        val websiteGuardActive = WebsiteBlacklistManager.isBlacklistEnabled.value &&
+                WebsiteBlacklistManager.blacklistedWebsites.value.isNotEmpty()
+        val dnsMode = try {
+            Settings.Global.getString(context.contentResolver, "private_dns_mode")
+        } catch (_: Exception) {
+            null
+        }
+        val dnsSpecifier = try {
+            Settings.Global.getString(context.contentResolver, "private_dns_specifier")
+        } catch (_: Exception) {
+            null
+        }
+        val dnsBypass = websiteGuardActive && isDnsBypass(dnsMode, dnsSpecifier)
+
+        if (!isDegraded(true, accessibilityOn, overlayOn) && !dnsBypass) return
 
         val now = System.currentTimeMillis()
         if (!shouldReopen(now, lastReopenEpoch)) return
         lastReopenEpoch = now
 
-        Log.w(TAG, "Protection degraded while blocking (a11y=$accessibilityOn overlay=$overlayOn); pulling the lock back")
+        Log.w(
+            TAG,
+            "Protection degraded while blocking (a11y=$accessibilityOn overlay=$overlayOn dnsBypass=$dnsBypass); pulling the lock back"
+        )
         if (focusActive) {
             FocusTimeManager.bringFocusLockToFront(context)
         } else {
