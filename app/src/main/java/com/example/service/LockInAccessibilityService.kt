@@ -1412,6 +1412,36 @@ class LockInAccessibilityService : AccessibilityService() {
 
             // CASE 2: Device Settings (App Info or Device Admin deactivation)
             if (isSettings || isXiaomiMiui) {
+                // Subcase 2.0: Force stop attempt against Lock In (App info -> Forcar parada).
+                // Without root the kill cannot be prevented, but silently disabling the
+                // protection is not allowed: close the dialog and pull the lock back.
+                val mentionsLockIn = texts.any { t ->
+                    val lt = t.lowercase(java.util.Locale.ROOT)
+                    lt == appLabel || lt == myPkgLower || lt == "lock in" || lt == "lockin"
+                }
+                if (mentionsLockIn) {
+                    val forceStopPhrases = listOf(
+                        "forcar parada", "for\u00e7ar parada", "force stop",
+                        "for\u00e7ar encerramento", "force close"
+                    )
+                    val isForceStopAttempt = texts.any { t ->
+                        val lt = t.lowercase(java.util.Locale.ROOT)
+                        forceStopPhrases.any { lt.contains(it) }
+                    }
+                    if (isForceStopAttempt) {
+                        lastUninstallInterceptEpoch = now
+                        lastUninstallInterceptPackage = pkg
+                        Log.w("LockInAccessibility", "Force stop attempt blocked while protection is active")
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                        if (FocusTimeManager.policySnapshot(applicationContext).active) {
+                            FocusTimeManager.bringFocusLockToFront(applicationContext)
+                        } else if (ScreenTimeManager.isLockoutActive(applicationContext)) {
+                            ScreenTimeManager.bringLockoutToFront(applicationContext)
+                        }
+                        return true
+                    }
+                }
+
                 // Subcase 2.1: Device Admin Deactivation attempt
                 val isDeviceAdminDeactivation = texts.any {
                     it.contains("desativar e desinstalar") || it.contains("deactivate and uninstall") ||

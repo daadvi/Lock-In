@@ -69,5 +69,48 @@ class PackageAddedReceiver : BroadcastReceiver() {
                 ).show()
             } catch (_: Exception) {}
         }
+
+        // Leva 3 (anti-bypass): um app recem-instalado pode ser a propria porta de fuga
+        // (navegador novo, cliente de VPN/DNS, clonador). Durante um bloqueio ativo o usuario
+        // precisa saber que instalou uma alternativa de contorno.
+        if (matchedBlacklist == null) {
+            val blocking = FocusTimeManager.policySnapshot(context).active ||
+                    ScreenTimeManager.isLockoutActive(context)
+            if (blocking) {
+                val isBrowser = isBrowserApp(context, pkgName)
+                if (BypassVectorDetector.isBypassVector(pkgName, isBrowser)) {
+                    Log.w(
+                        "PackageAddedReceiver",
+                        "Bypass vector installed during an active block: $pkgName (browser=$isBrowser)"
+                    )
+                    val warnIntent = Intent(context, BlockedActivity::class.java).apply {
+                        putExtra(BlockedActivity.EXTRA_BLOCKED_TARGET, pkgName)
+                        putExtra(BlockedActivity.EXTRA_APP_NAME, pkgName)
+                        putExtra(BlockedActivity.EXTRA_PACKAGE_NAME, pkgName)
+                        putExtra(
+                            BlockedActivity.EXTRA_BLOCKED_REASON,
+                            "Este aplicativo pode ser usado para contornar o bloqueio do Lock In (navegador, VPN/DNS ou clonador de apps) e foi instalado durante um bloqueio ativo.\n\nEncerre o bloqueio antes de usá-lo, ou desinstale-o."
+                        )
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    }
+                    try {
+                        com.example.util.XiaomiCompatibilityHelper.safelyStartActivity(context, warnIntent)
+                    } catch (e: Exception) {
+                        Log.e("PackageAddedReceiver", "Failed to warn about bypass vector: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun isBrowserApp(context: Context, pkgName: String): Boolean = try {
+        val probe = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+        context.packageManager.queryIntentActivities(probe, 0)
+            .any { it.activityInfo?.packageName == pkgName }
+    } catch (_: Exception) {
+        false
     }
 }
