@@ -6,15 +6,11 @@
 
 ## 📱 Capturas de Tela
 
-| Tela Principal | Ilha Flutuante | Rotinas | Configurações |
-|:---:|:---:|:---:|:---:|
-| ![Tela Principal](screenshots/home.png) | ![Ilha Flutuante](screenshots/floating_island.png) | ![Rotinas](screenshots/routines.png) | ![Configurações](screenshots/settings.png) |
+| Login / Primeiro acesso | Acesso local (offline) |
+|:---:|:---:|
+| ![Tela de login](screenshots/login.png) | ![Acesso local](screenshots/acesso_local.png) |
 
-| Bloqueio Ativo | Frase de Desafio | Proteção Anti-Desinstalação | Rotinas Multi-App |
-|:---:|:---:|:---:|:---:|
-| ![Bloqueio](screenshots/blocked.png) | ![Desafio](screenshots/challenge.png) | ![Anti-Uninstall](screenshots/anti_uninstall.png) | ![Multi-App](screenshots/multi_app_routine.png) |
-
-> **Nota:** Adicione screenshots reais na pasta `screenshots/` para visualização completa.
+*Capturas reais do app rodando em Android 14 (emulador 1080×2400). Novas telas serão adicionadas conforme forem capturadas.*
 
 ---
 
